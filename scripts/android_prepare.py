@@ -197,7 +197,7 @@ def wire_signing(project: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
-    ap.add_argument("--version", default="v0.1.0")
+    ap.add_argument("--version", default="v0.1.1")
     ap.add_argument("--icons", default="src-tauri/icons/android")
     ap.add_argument("--keystore", help="path to keystore file (written to keystore.properties)")
     ap.add_argument("--alias", default="astrbotplus")
