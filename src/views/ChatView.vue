@@ -3,6 +3,7 @@ import { onMounted, computed } from "vue";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
+import { usePlatform } from "@/composables/usePlatform";
 import ChatList from "@/components/ChatList.vue";
 import ChatWindow from "@/components/ChatWindow.vue";
 import ConnectionDialog from "@/components/ConnectionDialog.vue";
@@ -11,8 +12,12 @@ const settings = useSettingsStore();
 const chat = useChatStore();
 const { connected } = storeToRefs(settings);
 const { activeUmo } = storeToRefs(chat);
+const { isMobile } = usePlatform();
 
 const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
+
+// Mobile shows a single pane: the list, or the open conversation.
+const showListOnMobile = computed(() => !activeUmo.value);
 
 onMounted(async () => {
   if (settings.hasCredentials && !connected.value) {
@@ -25,9 +30,19 @@ onMounted(async () => {
 <template>
   <div class="chat-view">
     <template v-if="!needsSetup">
-      <ChatList class="list" :class="{ 'hide-pane': !!activeUmo }" />
-      <ChatWindow class="window-pane" />
+      <!-- Mobile: single pane (list ⇄ conversation) -->
+      <template v-if="isMobile">
+        <ChatList v-if="showListOnMobile" class="pane-full" />
+        <ChatWindow v-else class="pane-full" />
+      </template>
+
+      <!-- Desktop: two panes -->
+      <template v-else>
+        <ChatList class="list" />
+        <ChatWindow class="window-pane" />
+      </template>
     </template>
+
     <div v-else class="welcome">
       <div class="welcome-inner">
         <img src="/logo.svg" alt="AstrBot+" width="96" height="96" />
@@ -57,6 +72,12 @@ onMounted(async () => {
   flex: 1 1 auto;
   min-width: 0;
 }
+/* Mobile single pane fills the whole area. */
+.pane-full {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
 .welcome {
   flex: 1;
   display: grid;
@@ -67,10 +88,5 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   max-width: 440px;
-}
-@media (max-width: 760px) {
-  .list.hide-pane {
-    display: none;
-  }
 }
 </style>

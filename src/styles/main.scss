@@ -34,7 +34,6 @@ body,
   scroll-behavior: smooth;
 }
 
-/* Prevent text selection flicker while resizing the window */
 .no-select {
   user-select: none;
 }
@@ -46,4 +45,21 @@ body,
 .no-drag {
   -webkit-app-region: no-drag;
   app-region: no-drag;
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile layout helpers
+   The shell switches to a bottom tab bar below 900px (see usePlatform.ts).
+   Views add bottom padding so content is never hidden behind the tab bar.
+--------------------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .contacts-view,
+  .settings-view {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+  .chat-main,
+  .messages {
+    /* keep the composer clear of the tab bar */
+    padding-bottom: 0;
+  }
 }

@@ -29,9 +29,15 @@ npm run tauri build  # 打包安装包
 - `src/composables` — 与平台能力（通知 / 窗口 / 托盘）交互的可复用逻辑。
 - `src/components`、`src/views` — 展示层。
 
+## 发布（Release）
+
+推送 `v*` 标签或手动触发 `.github/workflows/release.yml` 即会构建三端并创建
+GitHub Release。版本号与发布说明取自 `CHANGELOG.md` 的第一条 `## ` 记录，因此发版前
+请先更新它。
+
 ## Android
 
-移动端打包见 [`MOBILE.md`](./MOBILE.md)。核心命令：
+移动端打包与签名见 [`MOBILE.md`](./MOBILE.md)。核心命令：
 
 ```bash
 rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android

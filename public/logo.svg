@@ -1,41 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" preserveAspectRatio="xMidYMid meet" role="img" aria-label="AstrBot+">
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="AstrBot+">
   <title>AstrBot+</title>
-  <!-- AstrBot+ logo — a derivative ("二创") of the AstrBot favicon sparkle,
-       recolored with a soft gradient and a "+" badge to signal "Plus". -->
+  <!-- AstrBot+ app icon — a derivative ("二创") of the AstrBot favicon sparkle,
+       set on a full-bleed gradient square with a "+" badge. -->
   <defs>
-    <linearGradient id="spark" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#4fb2e8"/>
-      <stop offset="1" stop-color="#1f6fa8"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#42a9e2"/>
+      <stop offset="0.5" stop-color="#2f86bd"/>
+      <stop offset="1" stop-color="#1a5c92"/>
     </linearGradient>
-    <linearGradient id="badge" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7bd0ff"/>
-      <stop offset="1" stop-color="#2f86bd"/>
+    <linearGradient id="mark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dcefff"/>
     </linearGradient>
   </defs>
 
-  <!-- Main sparkle (adapted from the official favicon path) -->
-  <g transform="translate(0 18)">
-    <path
-      d="m246.3 328.1-17.8 41.2c-6.4 14.8-26.9 14.8-33.3 0l-17.8-41.2c-14.9-34.2-41.8-61.4-75.3-76.3l-48.8-21.6c-14.7-6.5-14.7-27.9 0-34.4l47.2-21c34.4-15.3 61.7-43.5 76.4-78.8l18-43.7c6.3-15.2 27.3-15.2 33.6 0l18 43.7c14.7 35.3 42 63.6 76.4 78.8l47.2 21c14.7 6.5 14.7 27.9 0 34.4l-48.8 21.6c-33.5 14.8-60.4 42.1-75.3 76.2z"
-      fill="url(#spark)"
-      transform="translate(0 35)"/>
-  </g>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
 
-  <!-- Small companion sparkle -->
-  <g transform="translate(30 -150)">
-    <path
-      d="m402.2 449.3-5.3 12.2c-3.5 7.9-14.4 7.9-17.9 0l-5.3-12.2c-8.4-19.3-23.6-34.6-42.4-43l-15.4-6.9c-7.9-3.5-7.9-14.9 0-18.4l14.5-6.5c19.4-8.6 34.8-24.5 43.1-44.5l5.4-13.1c3.4-8.1 14.6-8.1 18 0l5.4 13.1c8.3 19.9 23.7 35.8 43.1 44.5l14.5 6.5c7.9 3.5 7.9 14.9 0 18.4l-15.4 6.9c-19 8.3-34.1 23.7-42.5 43z"
-      fill="url(#badge)"
-      opacity="0.92"
-      transform="matrix(0.95 0 0 0.95 22 -278)"/>
-  </g>
+  <!-- Four-point sparkle (the AstrBot motif), centered and inside the
+       Android adaptive-icon safe zone. -->
+  <path
+    d="M256 96 C266 176 336 246 416 256 C336 266 266 336 256 416 C246 336 176 266 96 256 C176 246 246 176 256 96 Z"
+    fill="url(#mark)"/>
 
   <!-- "+" badge -->
-  <circle cx="404" cy="404" r="92" fill="url(#badge)" stroke="#0e1621" stroke-width="14"/>
-  <path
-    d="M404 350v108M350 404h108"
-    fill="none"
-    stroke="#ffffff"
-    stroke-width="28"
-    stroke-linecap="round"/>
+  <circle cx="382" cy="382" r="70" fill="#1a5c92" opacity="0.35"/>
+  <circle cx="382" cy="382" r="62" fill="#ffffff"/>
+  <path d="M382 350v64M350 382h64" stroke="#2f86bd" stroke-width="16" stroke-linecap="round"/>
 </svg>

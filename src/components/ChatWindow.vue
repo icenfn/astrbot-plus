@@ -3,6 +3,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "@/stores/chat";
 import { useSettingsStore } from "@/stores/settings";
+import { usePlatform } from "@/composables/usePlatform";
 import { notify } from "@/composables/useNotify";
 import AstrbotAvatar from "./AstrbotAvatar.vue";
 import MessageBubble from "./MessageBubble.vue";
@@ -11,6 +12,7 @@ import MessageComposer from "./MessageComposer.vue";
 const chat = useChatStore();
 const settings = useSettingsStore();
 const { activeContact, activeThread } = storeToRefs(chat);
+const { isMobile } = usePlatform();
 
 const scrollEl = ref<HTMLElement | null>(null);
 
@@ -45,6 +47,10 @@ watch(
 );
 watch(() => activeContact.value?.umo, () => scrollToBottom());
 
+function closeChat() {
+  chat.activeUmo = "";
+}
+
 async function onSend(text: string) {
   const contact = activeContact.value;
   if (!contact) return;
@@ -67,6 +73,14 @@ async function onSend(text: string) {
   <section class="window">
     <template v-if="activeContact">
       <header class="head">
+        <v-btn
+          v-if="isMobile"
+          icon="mdi-arrow-left"
+          variant="text"
+          size="small"
+          class="back-btn"
+          @click="closeChat"
+        />
         <AstrbotAvatar
           :name="activeContact.displayName"
           :seed="activeContact.avatarSeed"
@@ -130,6 +144,9 @@ async function onSend(text: string) {
   padding: 12px 16px;
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(128, 150, 170, 0.14);
+}
+.back-btn {
+  margin-left: -8px;
 }
 .head-name {
   font-weight: 600;
