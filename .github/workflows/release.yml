@@ -2,7 +2,7 @@ name: Release
 
 # 手动触发，或推送 v* 标签时触发。
 # 从 CHANGELOG.md 提取最新版本号与发布说明，构建
-# Linux(deb/rpm) / Windows(nsis) / Android(arm64+armv7) 并汇总发布到 GitHub Release。
+# Linux(deb/rpm) / Windows(nsis) / Android(arm64+armv7)，并汇总为一次 GitHub Release。
 on:
   workflow_dispatch:
   push:
@@ -25,30 +25,7 @@ jobs:
           fetch-depth: 0
       - name: Extract version + body from CHANGELOG.md
         id: ver
-        run: |
-          content=$(cat CHANGELOG.md)
-          version=$(echo "$content" | grep -m 1 '^## ' | sed 's/## //')
-          body=$(echo "$content" | awk -v v="$version" '
-            BEGIN { capture = 0 }
-            $0 ~ "^## " v { capture = 1; next }
-            capture == 1 && $0 ~ "^## " { exit }
-            capture == 1 { print }
-          ')
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            exists=false
-          elif git rev-parse "$version" >/dev/null 2>&1; then
-            exists=true
-          else
-            exists=false
-          fi
-          {
-            echo "version=$version"
-            echo "body<<EOF"
-            echo "$body"
-            echo "EOF"
-            echo "should_release=$([ "$exists" = false ] && echo true || echo false)"
-          } >> "$GITHUB_OUTPUT"
-          echo "version=$version should_release=$exists"
+        run: python3 scripts/extract_changelog.py >> "$GITHUB_OUTPUT"
 
   build-linux:
     name: Build (Linux deb/rpm)
@@ -65,21 +42,13 @@ jobs:
       - name: Install Linux build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
-            patchelf libxdo-dev libssl-dev build-essential curl wget file
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev build-essential curl wget file
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
       - name: Build Linux bundles (deb / rpm)
         run: npm run tauri build -- --bundles deb,rpm
-      - name: Rename artifacts
-        run: |
-          V=${{ needs.prepare.outputs.version }}
-          mkdir -p release
-          DEB=$(find src-tauri/target/release/bundle/deb -name "*.deb" | head -1)
-          RPM=$(find src-tauri/target/release/bundle/rpm -name "*.rpm" | head -1)
-          mv "$DEB" "release/astrbot-plus-${V}-linux-amd64.deb"
-          mv "$RPM" "release/astrbot-plus-${V}-linux-x86_64.rpm"
-          ls -la release
+      - name: Collect + rename artifacts
+        run: bash scripts/collect_artifacts.sh linux "${{ needs.prepare.outputs.version }}"
       - uses: actions/upload-artifact@v4
         with:
           name: linux-release
@@ -102,16 +71,9 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Build Windows installer (nsis)
         run: npm run tauri build -- --bundles nsis
-      - name: Rename installer
-        shell: pwsh
-        run: |
-          $V = "${{ needs.prepare.outputs.version }}"
-          $installer = Get-ChildItem -Path "src-tauri\target\release\bundle\nsis\*.exe" | Select-Object -First 1
-          $dest = Join-Path (Split-Path $installer) "astrbot-plus-$V-windows-x64-setup.exe"
-          Move-Item -Path $installer.FullName -Destination $dest
-          New-Item -ItemType Directory -Force -Path release | Out-Null
-          Copy-Item $dest "release\astrbot-plus-$V-windows-x64-setup.exe"
-          Get-ChildItem release
+      - name: Collect + rename installer
+        shell: bash
+        run: bash scripts/collect_artifacts.sh windows "${{ needs.prepare.outputs.version }}"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release
@@ -124,14 +86,13 @@ jobs:
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-22.04
     env:
-      # secrets 不能在 if: 中引用，先注入 job 级 env 供后续 step 判断
       ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rust toolchain + Android targets (arm64 + armv7 only)
+      - name: Rust toolchain + Android targets (arm64 + armv7)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi
@@ -147,16 +108,8 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Android SDK (runner preinstalled; install platforms/tools + accept licenses)
-        run: |
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
-          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" \
-            "build-tools;34.0.0" >/dev/null 2>&1 || true
+      - name: Configure Android SDK (preinstalled on runner)
+        run: bash scripts/setup_android_sdk.sh
 
       - name: Android NDK r26b
         id: setup-ndk
@@ -175,170 +128,24 @@ jobs:
       - name: Initialize Android project
         run: npx tauri android init
 
-      - name: Restrict ABIs to arm64 + armv7
+      - name: Prepare signing keystore
+        run: bash scripts/prepare_android_keystore.sh
+
+      - name: Prepare Android project (icons / version / manifest / MainActivity / signing)
         run: |
-          for f in src-tauri/gen/android/gradle.properties src-tauri/gen/android/app/gradle.properties; do
-            touch "$f"
-            printf 'abiList=arm64-v8a,armeabi-v7a\narchList=arm64,arm\ntargetList=aarch64,armv7\n' >> "$f"
-          done
-          grep -hE '^(abiList|archList|targetList)=' src-tauri/gen/android/gradle.properties src-tauri/gen/android/app/gradle.properties || true
-
-      - name: Fix versionCode / versionName (stable upgrade installs)
-        run: |
-          V="${{ needs.prepare.outputs.version }}"
-          CLEAN="${V#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CLEAN"
-          CODE=$(( (MAJOR * 10000) + (MINOR * 100) + PATCH ))
-          printf 'tauri.android.versionCode=%s\ntauri.android.versionName=%s\n' "$CODE" "$CLEAN" \
-            >> src-tauri/gen/android/app/tauri.properties
-          grep -E 'versionCode|versionName' src-tauri/gen/android/app/tauri.properties
-
-      - name: Override Android icons with our custom icon set
-        run: |
-          cp -r src-tauri/icons/android/. src-tauri/gen/android/app/src/main/res/
-          echo "icon override done:"
-          find src-tauri/gen/android/app/src/main/res/ -name "ic_launcher*" | sort
-
-      - name: Allow cleartext HTTP (self-hosted AstrBot over http)
-        run: |
-          python3 - <<'EOF'
-          p = 'src-tauri/gen/android/app/src/main/AndroidManifest.xml'
-          c = open(p, encoding='utf-8').read()
-          if 'usesCleartextTraffic' not in c:
-              c = c.replace('<application ', '<application android:usesCleartextTraffic="true" ', 1)
-              open(p, 'w', encoding='utf-8').write(c)
-          print('cleartext:', 'usesCleartextTraffic' in open(p, encoding='utf-8').read())
-          EOF
-
-      - name: MainActivity system-bar insets + back-key dispatch
-        run: |
-          python3 - <<'PYEOF'
-          import glob
-          path = glob.glob('src-tauri/gen/android/app/src/main/java/**/MainActivity.kt', recursive=True)[0]
-          src = open(path, encoding='utf-8').read()
-          pkg = [l for l in src.splitlines() if l.startswith('package ')][0].replace('package ', '').replace(';', '').strip()
-          code = f"""package {pkg}
-
-import android.os.Bundle
-
-class MainActivity : TauriActivity() {{
-  override fun onCreate(savedInstanceState: Bundle?) {{
-    super.onCreate(savedInstanceState)
-    window.decorView.setOnApplyWindowInsetsListener {{ v: android.view.View, insets: android.view.WindowInsets ->
-      if (android.os.Build.VERSION.SDK_INT >= 30) {{
-        val bars = insets.getInsets(
-          android.view.WindowInsets.Type.systemBars() or
-          android.view.WindowInsets.Type.displayCutout()
-        )
-        v.setPadding(0, bars.top, 0, bars.bottom)
-      }} else {{
-        v.setPadding(0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom)
-      }}
-      insets
-    }}
-    window.decorView.requestApplyInsets()
-  }}
-
-  // 返回键：派发 android:back 事件给前端（前端据此关闭会话 / 返回 / 退出）
-  @Deprecated("Deprecated in Java")
-  override fun onBackPressed() {{
-    notifyWebviewBack()
-  }}
-
-  private fun notifyWebviewBack() {{
-    try {{
-      var web: android.webkit.WebView? = null
-      fun scan(v: android.view.View) {{
-        if (web != null) return
-        if (v is android.webkit.WebView) {{ web = v; return }}
-        if (v is android.view.ViewGroup) {{
-          for (i in 0 until v.childCount) scan(v.getChildAt(i))
-        }}
-      }}
-      scan(window.decorView)
-      web?.post {{
-        web!!.evaluateJavascript(
-          "window.dispatchEvent(new CustomEvent('android:back'))", null)
-      }}
-    }} catch (_: Exception) {{
-      finish()
-    }}
-  }}
-}}
-"""
-          open(path, 'w', encoding='utf-8').write(code)
-          print('MainActivity patched:', path, 'pkg=', pkg)
-          PYEOF
-
-      - name: Configure signing (secret keystore, else committed debug keystore)
-        run: |
-          if [ -n "$ANDROID_KEY_BASE64" ]; then
-            echo "keyAlias=$ANDROID_KEY_ALIAS" > src-tauri/gen/android/keystore.properties
-            echo "keyPassword=$ANDROID_KEY_PASSWORD" >> src-tauri/gen/android/keystore.properties
-            echo "storeFile=$RUNNER_TEMP/release.keystore" >> src-tauri/gen/android/keystore.properties
-            echo "storePassword=$ANDROID_KEY_PASSWORD" >> src-tauri/gen/android/keystore.properties
-            base64 -d <<< "$ANDROID_KEY_BASE64" > "$RUNNER_TEMP/release.keystore"
-            echo "using secret keystore"
-          else
-            # 仓库内置稳定 debug 签名：保证跨版本覆盖安装不报“软件包冲突”
-            cp android/debug.keystore "$RUNNER_TEMP/release.keystore"
-            echo "keyAlias=astrbotplus" > src-tauri/gen/android/keystore.properties
-            echo "keyPassword=android" >> src-tauri/gen/android/keystore.properties
-            echo "storeFile=$RUNNER_TEMP/release.keystore" >> src-tauri/gen/android/keystore.properties
-            echo "storePassword=android" >> src-tauri/gen/android/keystore.properties
-            echo "using committed debug keystore"
-          fi
-          cat src-tauri/gen/android/keystore.properties
-
-      - name: Wire release signing into Gradle
-        run: |
-          python3 - <<'PYEOF'
-          p = 'src-tauri/gen/android/app/build.gradle.kts'
-          s = open(p, encoding='utf-8').read()
-          if 'import java.util.Properties' not in s:
-              s = 'import java.util.Properties\n' + s
-          if 'signingConfigs' not in s:
-              block = '''    signingConfigs {
-                  if (rootProject.file("keystore.properties").exists()) {
-                      val keystoreProperties = Properties().apply {
-                          load(rootProject.file("keystore.properties").inputStream())
-                      }
-                      create("release") {
-                          storeFile = file(keystoreProperties.getProperty("storeFile"))
-                          storePassword = keystoreProperties.getProperty("storePassword")
-                          keyAlias = keystoreProperties.getProperty("keyAlias")
-                          keyPassword = keystoreProperties.getProperty("keyPassword")
-                      }
-                  }
-              }
-          '''
-              marker = '    buildTypes {'
-              assert marker in s, 'buildTypes marker not found'
-              s = s.replace(marker, block + marker, 1)
-          rel = 'getByName("release") {'
-          if rel in s and 'signingConfig = signingConfigs.findByName("release")' not in s:
-              s = s.replace(rel, rel + '\n            signingConfig = signingConfigs.findByName("release")', 1)
-          open(p, 'w', encoding='utf-8').write(s)
-          print('gradle signing wired')
-          PYEOF
+          python3 scripts/android_prepare.py \
+            --project src-tauri/gen/android \
+            --version "${{ needs.prepare.outputs.version }}" \
+            --icons src-tauri/icons/android \
+            --keystore "$RUNNER_TEMP/release.keystore"
 
       - name: Build Android APK (split per ABI)
         run: npx tauri android build --apk --split-per-abi
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
-      - name: Collect arm64 / armv7 APKs
-        run: |
-          V=${{ needs.prepare.outputs.version }}
-          mkdir -p release
-          cd src-tauri/gen/android/app/build/outputs/apk
-          for abi in arm64 arm; do
-            f=$(find "$abi" -name "*-release.apk" 2>/dev/null | head -1)
-            if [ -n "$f" ]; then
-              cp "$f" "$GITHUB_WORKSPACE/release/astrbot-plus-${V}-android-${abi}.apk"
-            fi
-          done
-          ls -la "$GITHUB_WORKSPACE/release"
+      - name: Collect + rename APKs
+        run: bash scripts/collect_artifacts.sh android "${{ needs.prepare.outputs.version }}"
 
       - uses: actions/upload-artifact@v4
         with:
