@@ -4,13 +4,15 @@ version = "0.1.0"
 description = "AstrBot+ — a modern desktop client for AstrBot"
 authors = ["astrbot-plus contributors"]
 license = "MIT"
-repository = "https://github.com/astrbot-plus/astrbot-plus"
+repository = "https://github.com/icenfn/astrbot-plus"
 edition = "2021"
 rust-version = "1.77.2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
+# The Android/iOS builds consume this as a shared library. Tauri derives the
+# expected `.so`/`.a` name from this crate name (must keep the `_lib` suffix).
 name = "astrbot_plus_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -21,10 +23,14 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-http = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-autostart = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Desktop-only plugins. `autostart` has no mobile implementation, so it is
+# compiled only for desktop targets to keep the Android/iOS build clean.
+[target.'cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))'.dependencies]
+tauri-plugin-autostart = "2"
 
 [profile.release]
 panic = "abort"
@@ -32,3 +38,14 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+# ---------------------------------------------------------------------------
+# Android
+# ---------------------------------------------------------------------------
+# Building for Android needs the NDK toolchain and the Rust Android targets,
+# e.g.:
+#   rustup target add aarch64-linux-android armv7-linux-androideabi \
+#                     i686-linux-android x86_64-linux-android
+#   export ANDROID_HOME=/path/to/Android/Sdk NDK_HOME=/path/to/ndk
+#   npm run tauri android init      # generates src-tauri/gen/android
+#   npm run tauri android build     # produces an APK / AAB

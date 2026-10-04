@@ -3,14 +3,17 @@
 
   # AstrBot+
 
-  **AstrBot+ — 一个现代化的 AstrBot 桌面客户端**
+  **AstrBot+ — 一个现代化的 AstrBot 桌面 / 移动客户端**
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
   [![Tauri](https://img.shields.io/badge/Tauri-2.x-24C8DB?logo=tauri&logoColor=white)](https://tauri.app/)
   [![Vue](https://img.shields.io/badge/Vue-3.x-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
   [![Vuetify](https://img.shields.io/badge/Vuetify-4.x-1867C0?logo=vuetify&logoColor=white)](https://vuetifyjs.com/)
+  [![build](https://github.com/icenfn/astrbot-plus/actions/workflows/build.yml/badge.svg)](https://github.com/icenfn/astrbot-plus/actions/workflows/build.yml)
+  [![android](https://github.com/icenfn/astrbot-plus/actions/workflows/android.yml/badge.svg)](https://github.com/icenfn/astrbot-plus/actions/workflows/android.yml)
 
-  基于 Tauri + Vue 3 + Vuetify 4 + Pinia + VueUse，通过 AstrBot OpenAPI 通信。
+  基于 Tauri 2 + Vue 3 + Vuetify 4 + Pinia + VueUse，通过 AstrBot OpenAPI 通信。
+  支持 **桌面端（Windows / macOS / Linux）** 与 **Android** 打包。
 
 </div>
 
@@ -18,7 +21,7 @@
 
 ## ✨ 简介
 
-AstrBot+ 是一个开源、跨平台的 [AstrBot](https://astrbot.app) 桌面客户端。界面参考
+AstrBot+ 是一个开源、跨平台的 [AstrBot](https://astrbot.app) 客户端。界面参考
 Telegram 重新设计，采用 Vuetify 4 组件库构建。当前版本聚焦于**纯文字聊天**这一核心场景。
 
 ### 已实现功能
@@ -27,16 +30,17 @@ Telegram 重新设计，采用 Vuetify 4 组件库构建。当前版本聚焦于
 - 👥 **纯文字群聊**：群会话列表与群聊文本收发
 - 🗂️ **会话列表**：从 AstrBot 拉取全部会话（conversations），支持按「全部 / 单聊 / 群聊」筛选与搜索
 - 🔔 **系统通知**：收到回复时调用系统通知，可设置为「仅后台通知」
-- 🪟 **后台运行**：关闭窗口时最小化到系统托盘（不退出），托盘菜单可显示窗口 / 退出
-- 🚀 **开机自启**：可选开机自动启动（基于 autostart 插件）
+- 🪟 **后台运行**（桌面）：关闭窗口时最小化到系统托盘（不退出），托盘菜单可显示窗口 / 退出
+- 🚀 **开机自启**（桌面）：可选开机自动启动
 - 🌗 **主题**：深色 / 浅色 / 跟随系统三种主题
+- 📱 **多端**：桌面端 + Android（详见下文「Android 打包」）
 - 🎨 **二创图标**：应用图标基于 AstrBot 官方 favicon 二次创作
 
 ### 技术栈
 
 | 层 | 技术 |
 | --- | --- |
-| 桌面框架 | [Tauri 2](https://tauri.app/) |
+| 应用框架 | [Tauri 2](https://tauri.app/)（桌面 + Android/iOS） |
 | 前端 | [Vue 3](https://vuejs.org/) + TypeScript |
 | UI 组件库 | [Vuetify 4](https://vuetifyjs.com/) |
 | 状态管理 | [Pinia](https://pinia.vuejs.org/) |
@@ -67,8 +71,9 @@ AstrBot+ 仅使用 AstrBot 官方 HTTP API（`Authorization: Bearer abk_xxx`）�
 ### 环境要求
 
 - [Node.js](https://nodejs.org/) v18+
-- [Rust](https://rustup.rs/)（stable 即可，构建 Tauri 需要）
-- 系统依赖参考 [Tauri 官方文档](https://tauri.app/start/prerequisites/)
+- [Rust](https://rustup.rs/)（stable，构建 Tauri 需要）
+- 桌面端系统依赖见 [Tauri 官方文档](https://tauri.app/start/prerequisites/)
+- Android 端另需 JDK 17、Android SDK、Android NDK（见下文）
 
 ### 命令
 
@@ -88,6 +93,58 @@ npm run build
 # 打包桌面应用
 npm run tauri build
 ```
+
+## 📱 Android 打包
+
+AstrBot+ 已内置 Tauri 2 的移动端支持（`tauri.conf.json` 中配置了 `bundle.android`，
+`lib.rs` 用 `#[cfg(desktop)]` 隔离了仅桌面可用的托盘 / 自启逻辑，权限在
+`capabilities/mobile.json` 单独声明）。
+
+### 1. 准备环境
+
+```bash
+# Rust 的 Android 交叉编译目标
+rustup target add aarch64-linux-android armv7-linux-androideabi \
+                  i686-linux-android x86_64-linux-android
+
+# 环境变量（按你的实际安装路径）
+export ANDROID_HOME="$HOME/Android/Sdk"
+export NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+
+# 需要 JDK 17
+java -version   # 应显示 17.x
+```
+
+### 2. 初始化并构建
+
+```bash
+# 首次：生成原生工程 src-tauri/gen/android（已被 .gitignore 忽略）
+npm run android:init
+
+# 开发调试（连接设备或模拟器）
+npm run android:dev
+
+# 打包 APK
+npm run android:build:apk          # 等价于 tauri android build --apk
+# 或指定 ABI，加快速度
+npm run tauri android build -- --apk --target aarch64
+
+# 打包上架用的 AAB
+npm run android:build:aab
+```
+
+产物路径：`src-tauri/gen/android/app/build/outputs/apk/…`（APK）或
+`…/bundle/…`（AAB）。
+
+> `src-tauri/gen/android` 为自动生成的工程，不入库；克隆后先执行
+> `npm run android:init` 即可。
+
+### 3. 云端构建（无需本地环境）
+
+仓库内置 GitHub Actions 工作流 `.github/workflows/android.yml`，会在 push 到
+`main` 或手动触发时，在 Ubuntu runner 上自动配置 JDK 17 + Android SDK + NDK，
+构建 arm64 APK 并作为 artifact 上传。可在 Actions 页面直接下载。
 
 ## 📁 项目结构
 
@@ -109,20 +166,9 @@ astrbot-plus/
 │   │   └── chat.ts              # 会话 / 消息状态
 │   ├── composables/
 │   │   ├── useNotify.ts         # 系统通知
-│   │   └── useWindow.ts         # 托盘 / 后台 / 自启
-│   ├── components/
-│   │   ├── AppSidebar.vue        # 左侧导航栏
-│   │   ├── ChatList.vue          # 会话列表
-│   │   ├── ContactItem.vue       # 会话条目
-│   │   ├── ChatWindow.vue        # 聊天窗口
-│   │   ├── MessageBubble.vue     # 消息气泡
-│   │   ├── MessageComposer.vue   # 输入框
-│   │   ├── AstrbotAvatar.vue     # 头像
-│   │   └── ConnectionDialog.vue  # 连接对话框
-│   ├── views/
-│   │   ├── ChatView.vue
-│   │   ├── ContactsView.vue
-│   │   └── SettingsView.vue
+│   │   └── useWindow.ts         # 托盘 / 后台 / 自启（桌面）
+│   ├── components/              # 侧栏、会话列表、聊天窗口、气泡、输入框等
+│   ├── views/                   # ChatView / ContactsView / SettingsView
 │   ├── plugins/vuetify.ts       # Vuetify 主题与图标
 │   ├── router/index.ts
 │   └── styles/main.scss
@@ -130,11 +176,13 @@ astrbot-plus/
     ├── Cargo.toml
     ├── build.rs
     ├── tauri.conf.json
-    ├── capabilities/default.json
+    ├── capabilities/
+    │   ├── default.json         # 桌面权限
+    │   └── mobile.json          # Android / iOS 权限
     ├── icons/                   # 由 logo.svg 生成的多平台图标
     └── src/
         ├── main.rs
-        └── lib.rs               # 托盘、后台运行、插件注册
+        └── lib.rs               # 托盘/后台(桌面) + 插件注册
 ```
 
 ## 🎨 关于图标

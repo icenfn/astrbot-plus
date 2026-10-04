@@ -29,6 +29,17 @@ npm run tauri build  # 打包安装包
 - `src/composables` — 与平台能力（通知 / 窗口 / 托盘）交互的可复用逻辑。
 - `src/components`、`src/views` — 展示层。
 
+## Android
+
+移动端打包见 [`MOBILE.md`](./MOBILE.md)。核心命令：
+
+```bash
+rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+export ANDROID_HOME=... NDK_HOME=...
+npm run android:init     # 生成 src-tauri/gen/android
+npm run android:build:apk
+```
+
 ## 图标
 
 新增或修改品牌图标时：

@@ -25,4 +25,5 @@ dist-ssr
 
 # Rust / Tauri
 src-tauri/target
-src-tauri/gen/schemas
+# Generated native mobile projects (regenerate with `npm run tauri android init`)
+src-tauri/gen

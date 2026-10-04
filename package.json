@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "AstrBot+ — A modern desktop client for AstrBot (Tauri + Vue 3 + Vuetify 4)",
+  "description": "AstrBot+ — a modern client for AstrBot (Tauri + Vue 3 + Vuetify 4)",
   "author": "astrbot-plus contributors",
   "license": "MIT",
   "scripts": {
@@ -12,7 +12,12 @@
     "build:only": "vite build",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "android:init": "tauri android init",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build",
+    "android:build:apk": "tauri android build --apk",
+    "android:build:aab": "tauri android build --aab"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.1",
