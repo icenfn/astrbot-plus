@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="AstrBot+ mark">
-  <title>AstrBot+ mark</title>
-  <!-- Sparkle-only mark, white on transparent. Scaled to fill the canvas so it
-       can be inset precisely when generating Android adaptive-icon layers. -->
-  <path d="M256 96 C266 176 336 246 416 256 C336 266 266 336 256 416 C246 336 176 266 96 256 C176 246 246 176 256 96 Z"
-        fill="#ffffff" transform="translate(256 256) scale(1.50) translate(-256 -256)"/>
-</svg>

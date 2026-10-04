@@ -133,11 +133,13 @@ async function onSend(text: string) {
 .window {
   flex: 1 1 auto;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 .head {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -158,6 +160,7 @@ async function onSend(text: string) {
 }
 .messages {
   flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   padding: 16px clamp(12px, 6vw, 60px);
   display: flex;

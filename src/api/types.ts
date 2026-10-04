@@ -72,6 +72,8 @@ export interface ChatMessage {
 export interface Contact {
   /** Stable key: the umo. */
   umo: string;
+  /** Server-side user id used by the conversation detail endpoint (usually == umo). */
+  userId: string;
   cid: string;
   displayName: string;
   platform: string;

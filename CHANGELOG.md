@@ -2,6 +2,20 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## v0.1.2
+
+### 新增
+
+- 📡 **API 请求层迁移到 [alova](https://alova.js.org/)**：使用 `createAlova` + `alova/fetch` 适配器统一请求与错误处理，流式聊天继续保持 SSE 增量解析。
+
+### 修复
+
+- 💬 **修复进入消息页不加载历史消息**：会话详情接口返回的是 `{status, message, data}` 信封，之前误将整个信封当作会话对象解析，导致 `history` 永远为空；现正确解包 `data`，并使用会话自身的 `user_id` 作为查询参数。
+- 📱 **移动端禁用双指缩放**：补充 `user-scalable=no` 视口设置、`touch-action` 与手势拦截，避免 WebView 被双指放大。
+- ⌨️ **修复移动端输入框被输入法遮挡**：视口启用 `interactive-widget=resizes-content`，布局改用 `dvh`，Android 端清单启用 `adjustResize`，输入框始终位于键盘上方。
+- 🧭 **修复消息页底部 Tab 栏残留**：打开会话的消息页为全屏页面，移动端不再显示底部 Tab 栏。
+- 🎨 **图标回归原始设计并参照 DHThub 方案**：使用仓库根目录 `app-icon.png` 通过 `npx tauri icon` 统一生成桌面与 Android 全套图标，移除手工分层图标脚本，观感与原版一致。
+
 ## v0.1.1
 
 ### 修复

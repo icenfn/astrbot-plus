@@ -43,6 +43,34 @@ def patch_manifest_cleartext(project: str) -> None:
     log("AndroidManifest: cleartext HTTP enabled")
 
 
+def patch_manifest_softinput(project: str) -> None:
+    """Resize the WebView when the soft keyboard opens.
+
+    Without this the on-screen keyboard overlays the message composer on
+    Android. `adjustResize` lets the system shrink the WebView so the composer
+    stays visible above the keyboard.
+    """
+    path = os.path.join(project, "app", "src", "main", "AndroidManifest.xml")
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    if "windowSoftInputMode" in content:
+        log("AndroidManifest: windowSoftInputMode already set")
+        return
+    for marker in (
+        'android:name=".MainActivity"',
+        'android:name="app.astrbot.plus.MainActivity"',
+    ):
+        if marker in content:
+            content = content.replace(
+                marker, marker + ' android:windowSoftInputMode="adjustResize"', 1
+            )
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            log("AndroidManifest: windowSoftInputMode=adjustResize")
+            return
+    log("AndroidManifest: MainActivity activity tag not found, skip softinput")
+
+
 def override_icons(project: str, icons_dir: str) -> None:
     res = os.path.join(project, "app", "src", "main", "res")
     if not os.path.isdir(icons_dir):
@@ -197,7 +225,7 @@ def wire_signing(project: str) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--project", required=True)
-    ap.add_argument("--version", default="v0.1.1")
+    ap.add_argument("--version", default="v0.1.2")
     ap.add_argument("--icons", default="src-tauri/icons/android")
     ap.add_argument("--keystore", help="path to keystore file (written to keystore.properties)")
     ap.add_argument("--alias", default="astrbotplus")
@@ -205,6 +233,7 @@ def main() -> None:
     args = ap.parse_args()
 
     patch_manifest_cleartext(args.project)
+    patch_manifest_softinput(args.project)
     override_icons(args.project, args.icons)
     patch_main_activity(args.project)
     set_version(args.project, args.version)

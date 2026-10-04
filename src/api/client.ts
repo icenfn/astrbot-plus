@@ -1,3 +1,6 @@
+import { createAlova } from "alova";
+import VueHook from "alova/vue";
+import adapterFetch from "alova/fetch";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type {
   ApiEnvelope,
@@ -25,12 +28,11 @@ export function isTauri(): boolean {
  * (so requests bypass browser CORS) and falls back to the global fetch in the
  * plain browser/dev environment.
  */
-async function doFetch(input: string, init?: RequestInit): Promise<Response> {
-  if (isTauri()) {
-    return tauriFetch(input, init);
-  }
-  return fetch(input, init);
-}
+const baseFetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  return isTauri()
+    ? (tauriFetch as unknown as typeof fetch)(input as string, init)
+    : fetch(input, init);
+}) as typeof fetch;
 
 export class AstrbotError extends Error {
   status: number;
@@ -41,112 +43,182 @@ export class AstrbotError extends Error {
   }
 }
 
+function safeJson(text: string): unknown {
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    return text;
+  }
+}
+
+function envelopeMessage(body: unknown, fallback: string): string {
+  if (body && typeof body === "object" && "message" in (body as Record<string, unknown>)) {
+    const m = (body as Record<string, unknown>).message;
+    if (m) return String(m);
+  }
+  return fallback;
+}
+
 /**
- * Thin client over the AstrBot HTTP API.
+ * Create an alova instance bound to a base URL + auth headers.
+ * `responded` unwraps the JSON body and surfaces HTTP errors as AstrbotError.
+ */
+function createInstance(baseURL: string, headers: Record<string, string>) {
+  return createAlova({
+    baseURL,
+    statesHook: VueHook,
+    requestAdapter: adapterFetch({ customFetch: baseFetch }),
+    timeout: 30000,
+    beforeRequest(method) {
+      method.config.headers = { ...(method.config.headers ?? {}), ...headers };
+    },
+    responded: {
+      onSuccess: async (response: Response) => {
+        const text = await response.text();
+        const body = safeJson(text);
+        if (!response.ok) {
+          throw new AstrbotError(
+            envelopeMessage(body, `${response.status} ${response.statusText}`),
+            response.status,
+          );
+        }
+        return body;
+      },
+      onError: (error: Error) => {
+        throw error instanceof AstrbotError
+          ? error
+          : new AstrbotError(error?.message || "Network error");
+      },
+    },
+  });
+}
+
+/**
+ * A separate instance for the streaming `/chat` endpoint. It returns the raw
+ * Response so the SSE body can be read incrementally.
+ */
+function createStreamInstance(baseURL: string, headers: Record<string, string>) {
+  return createAlova({
+    baseURL,
+    statesHook: VueHook,
+    requestAdapter: adapterFetch({ customFetch: baseFetch }),
+    // No timeout: a streaming completion may legitimately run for a long time.
+    timeout: 0,
+    beforeRequest(method) {
+      method.config.headers = { ...(method.config.headers ?? {}), ...headers };
+    },
+    responded: {
+      onSuccess: async (response: Response) => {
+        if (!response.ok || !response.body) {
+          const text = await response.text().catch(() => "");
+          throw new AstrbotError(
+            envelopeMessage(safeJson(text), `${response.status} ${response.statusText}`),
+            response.status,
+          );
+        }
+        return response;
+      },
+      onError: (error: Error) => {
+        throw error instanceof AstrbotError
+          ? error
+          : new AstrbotError(error?.message || "Network error");
+      },
+    },
+  });
+}
+
+/**
+ * Thin client over the AstrBot HTTP API (built on alova).
  * All endpoints live under `{baseUrl}/api/v1`.
  */
 export class AstrbotClient {
   private baseUrl: string;
   private apiKey: string;
+  private alova: ReturnType<typeof createInstance>;
+  private streamAlova: ReturnType<typeof createStreamInstance>;
 
   constructor(config: AstrbotConfig) {
     this.baseUrl = (config.baseUrl || "").replace(/\/+$/, "");
     this.apiKey = config.apiKey.trim();
-  }
-
-  private url(path: string): string {
     const base = this.baseUrl.endsWith("/api") ? this.baseUrl : `${this.baseUrl}/api`;
-    return `${base}/v1${path}`;
-  }
-
-  private headers(extra?: Record<string, string>): Record<string, string> {
-    return {
+    const v1 = `${base}/v1`;
+    const headers = {
       Authorization: `Bearer ${this.apiKey}`,
       "X-API-Key": this.apiKey,
       Accept: "application/json",
-      ...(extra ?? {}),
     };
-  }
-
-  private async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await doFetch(this.url(path), {
-      ...init,
-      headers: this.headers(init?.headers as Record<string, string>),
-    });
-    const text = await res.text();
-    let body: unknown = null;
-    try {
-      body = text ? JSON.parse(text) : null;
-    } catch {
-      body = text;
-    }
-    if (!res.ok) {
-      const msg =
-        (body && typeof body === "object" && "message" in (body as Record<string, unknown>)
-          ? String((body as Record<string, unknown>).message)
-          : "") || `${res.status} ${res.statusText}`;
-      throw new AstrbotError(msg || "Request failed", res.status);
-    }
-    return body as T;
+    this.alova = createInstance(v1, headers);
+    this.streamAlova = createStreamInstance(v1, headers);
   }
 
   /** Verify credentials and return the configured IM bot ids. */
   async listImBots(): Promise<string[]> {
-    const env = await this.request<ApiEnvelope<{ bot_ids: string[] }>>("/im/bots");
-    return env.data?.bot_ids ?? [];
+    const env = (await this.alova.Get("/im/bots").send()) as ApiEnvelope<{ bot_ids: string[] }>;
+    return env?.data?.bot_ids ?? [];
   }
 
   async listProviders(): Promise<ProviderInfo[]> {
-    const env = await this.request<ApiEnvelope<{ providers: ProviderInfo[] }>>("/providers");
-    return env.data?.providers ?? [];
+    const env = (await this.alova.Get("/providers").send()) as ApiEnvelope<{
+      providers: ProviderInfo[];
+    }>;
+    return env?.data?.providers ?? [];
   }
 
-  async listConversations(params: {
-    page?: number;
-    pageSize?: number;
-    search?: string;
-    platforms?: string;
-    includeHistory?: boolean;
-  } = {}): Promise<Conversation[]> {
-    const q = new URLSearchParams();
-    q.set("page", String(params.page ?? 1));
-    q.set("page_size", String(params.pageSize ?? 100));
-    if (params.search) q.set("search", params.search);
-    if (params.platforms) q.set("platforms", params.platforms);
-    q.set("include_history", params.includeHistory ? "true" : "false");
-    const env = await this.request<ApiEnvelope<{ conversations: Conversation[] }>>(
-      `/conversations?${q.toString()}`,
-    );
-    return env.data?.conversations ?? [];
+  async listConversations(
+    params: {
+      page?: number;
+      pageSize?: number;
+      search?: string;
+      platforms?: string;
+      includeHistory?: boolean;
+    } = {},
+  ): Promise<Conversation[]> {
+    const env = (await this.alova
+      .Get("/conversations", {
+        params: {
+          page: params.page ?? 1,
+          page_size: params.pageSize ?? 100,
+          ...(params.search ? { search: params.search } : {}),
+          ...(params.platforms ? { platforms: params.platforms } : {}),
+          include_history: params.includeHistory ? "true" : "false",
+        },
+      })
+      .send()) as ApiEnvelope<{ conversations: Conversation[] }>;
+    return env?.data?.conversations ?? [];
   }
 
   async listSessions(params: { platform?: string; search?: string } = {}): Promise<SessionInfo[]> {
-    const q = new URLSearchParams();
-    if (params.platform) q.set("platform", params.platform);
-    if (params.search) q.set("search", params.search);
-    const env = await this.request<ApiEnvelope<{ sessions: SessionInfo[] }>>(
-      `/sessions?${q.toString()}`,
-    );
-    return env.data?.sessions ?? [];
+    const env = (await this.alova
+      .Get("/sessions", {
+        params: {
+          ...(params.platform ? { platform: params.platform } : {}),
+          ...(params.search ? { search: params.search } : {}),
+        },
+      })
+      .send()) as ApiEnvelope<{ sessions: SessionInfo[] }>;
+    return env?.data?.sessions ?? [];
   }
 
+  /**
+   * Fetch a single conversation (including its full history).
+   * The detail endpoint requires `user_id` (the conversation's umo) and wraps
+   * the payload in the standard `{status, message, data}` envelope — this
+   * method unwraps `data` so callers get a plain Conversation.
+   */
   async getConversation(cid: string, userId: string): Promise<Conversation> {
-    const q = new URLSearchParams({ user_id: userId });
-    return this.request<Conversation>(`/conversations/${encodeURIComponent(cid)}?${q.toString()}`);
+    const env = (await this.alova
+      .Get(`/conversations/${encodeURIComponent(cid)}`, { params: { user_id: userId } })
+      .send()) as ApiEnvelope<Conversation> | Conversation;
+    return ((env as ApiEnvelope<Conversation>)?.data ?? env) as Conversation;
   }
 
   /** Upload a file and return its attachment id (used for image/file parts). */
   async uploadFile(file: File): Promise<string> {
     const form = new FormData();
     form.append("file", file);
-    const res = await doFetch(this.url("/file"), {
-      method: "POST",
-      headers: this.headers(), // do not set content-type; let the runtime add boundary
-      body: form,
-    });
-    const text = await res.text();
-    const body = text ? JSON.parse(text) : null;
-    if (!res.ok) throw new AstrbotError(body?.message || "Upload failed", res.status);
+    const body = (await this.alova.Post("/file", form).send()) as {
+      data?: { attachment_id?: string; id?: string };
+    };
     return body?.data?.attachment_id ?? body?.data?.id ?? "";
   }
 
@@ -177,23 +249,8 @@ export class AstrbotClient {
     if (params.sessionId) body.session_id = params.sessionId;
     if (params.conversationId) body.conversation_id = params.conversationId;
 
-    const res = await doFetch(this.url("/chat"), {
-      method: "POST",
-      headers: this.headers({ "Content-Type": "application/json" }),
-      body: JSON.stringify(body),
-      signal: handlers.signal,
-    });
-
-    if (!res.ok || !res.body) {
-      const text = await res.text().catch(() => "");
-      let msg = `${res.status} ${res.statusText}`;
-      try {
-        msg = JSON.parse(text)?.message || msg;
-      } catch {
-        /* ignore */
-      }
-      throw new AstrbotError(msg, res.status);
-    }
+    const res = (await this.streamAlova.Post("/chat", body).send()) as unknown as Response;
+    if (!res.body) throw new AstrbotError("Empty response body", res.status);
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -258,11 +315,7 @@ export class AstrbotClient {
 
   /** Push a proactive text message to an existing conversation (imo push). */
   async sendImMessage(umo: string, message: string): Promise<void> {
-    await this.request("/im/messages", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ umo, message, type: "plain" }),
-    });
+    await this.alova.Post("/im/messages", { umo, message, type: "plain" }).send();
   }
 }
 
@@ -306,6 +359,8 @@ export function toContact(c: Conversation): Contact {
   const info = c.umo_info;
   return {
     umo: c.user_id || info?.umo || c.cid,
+    // The detail endpoint needs the conversation's own user_id (the umo).
+    userId: c.user_id || info?.umo || "",
     cid: c.cid,
     displayName: c.title || info?.display_name || info?.auto_name || c.cid,
     platform: c.platform_id || info?.platform || "unknown",

@@ -1,16 +1,27 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { nextTick, ref, watch } from "vue";
 
 const props = defineProps<{ busy?: boolean }>();
 const emit = defineEmits<{ (e: "send", text: string): void }>();
 
 const text = ref("");
+const el = ref<HTMLTextAreaElement | null>(null);
+
+function resize() {
+  const t = el.value;
+  if (!t) return;
+  t.style.height = "auto";
+  t.style.height = `${Math.min(t.scrollHeight, 140)}px`;
+}
+
+watch(text, () => nextTick(resize));
 
 function submit() {
   const value = text.value.trim();
   if (!value || props.busy) return;
   emit("send", value);
   text.value = "";
+  nextTick(resize);
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -25,6 +36,7 @@ function onKeydown(e: KeyboardEvent) {
   <footer class="composer">
     <div class="box">
       <textarea
+        ref="el"
         v-model="text"
         class="input"
         rows="1"
@@ -46,7 +58,8 @@ function onKeydown(e: KeyboardEvent) {
 
 <style scoped>
 .composer {
-  padding: 10px 16px 14px;
+  flex: 0 0 auto;
+  padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
   background: rgb(var(--v-theme-surface));
   border-top: 1px solid rgba(128, 150, 170, 0.14);
 }
@@ -68,6 +81,7 @@ function onKeydown(e: KeyboardEvent) {
   font-size: 14.5px;
   line-height: 1.5;
   max-height: 140px;
+  overflow-y: auto;
   padding: 8px 0;
   font-family: inherit;
 }

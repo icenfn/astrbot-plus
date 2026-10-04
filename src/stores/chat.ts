@@ -72,11 +72,13 @@ export const useChatStore = defineStore("chat", () => {
   async function ensureThreadLoaded(contact: Contact) {
     const t = threads.value[contact.umo];
     if (t?.loaded) return;
+    // Mark as loaded up-front so a slow/failed fetch is not retried in a loop.
     threads.value[contact.umo] = { messages: [], busy: false, loaded: true };
     try {
       const client = settings.buildClient();
-      const conv = await client.getConversation(contact.cid, contact.username);
-      // getConversation returns the raw conversation object (not enveloped).
+      // The conversation detail endpoint needs the row's own user_id (the umo),
+      // not the display / sender name.
+      const conv = await client.getConversation(contact.cid, contact.userId || contact.umo);
       const history = parseHistory(conv);
       threads.value[contact.umo].messages = history;
     } catch {

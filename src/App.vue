@@ -54,7 +54,9 @@ onMounted(async () => {
       <div class="app-view">
         <router-view />
       </div>
-      <AppMobileNav v-if="isMobile" />
+      <!-- The bottom tab bar is hidden while a conversation is open: the message
+           view is a full-screen page on mobile. -->
+      <AppMobileNav v-if="isMobile && !chat.activeUmo" />
     </div>
   </v-app>
 </template>
@@ -64,6 +66,8 @@ onMounted(async () => {
   display: flex;
   flex-direction: row;
   height: 100vh;
+  /* dvh keeps the layout correct when the mobile keyboard shrinks the viewport */
+  height: 100dvh;
   width: 100vw;
   overflow: hidden;
 }

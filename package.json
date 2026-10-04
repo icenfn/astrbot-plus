@@ -1,7 +1,7 @@
 {
   "name": "astrbot-plus",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "AstrBot+ — a modern client for AstrBot (Tauri + Vue 3 + Vuetify 4)",
   "author": "astrbot-plus contributors",
@@ -26,6 +26,7 @@
     "@tauri-apps/plugin-notification": "^2.5.1",
     "@tauri-apps/plugin-opener": "^2",
     "@vueuse/core": "^15.0.0",
+    "alova": "^3.5.5",
     "pinia": "^4.0.3",
     "vue": "^3.5.43",
     "vue-router": "^4.5.0",
