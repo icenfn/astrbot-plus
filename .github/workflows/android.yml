@@ -29,15 +29,27 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Set up Android NDK
         id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26b
           add-to-path: false
+
+      - name: Configure Android SDK (preinstalled on the runner)
+        run: |
+          # ubuntu-22.04 runners ship with the Android SDK preinstalled.
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK"        >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK"    >> "$GITHUB_ENV"
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools"           >> "$GITHUB_PATH"
+          echo "NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+          echo "Using SDK: $SDK"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1 || true
 
       - name: Add Rust Android targets
         uses: dtolnay/rust-toolchain@stable
@@ -53,8 +65,6 @@ jobs:
 
       - name: Initialize Android project
         run: npm run tauri android init
-        env:
-          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
       - name: Allow cleartext HTTP (for self-hosted AstrBot over http)
         run: |
@@ -68,8 +78,6 @@ jobs:
 
       - name: Build Android APK (arm64)
         run: npm run tauri android build -- --apk --target aarch64
-        env:
-          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
