@@ -166,7 +166,7 @@ async function toggleAutoStart(value: boolean | null) {
       <v-card-item>
         <template #prepend><v-icon icon="mdi-information-outline" color="primary" /></template>
         <v-card-title>AstrBot+</v-card-title>
-        <v-card-subtitle>开源桌面客户端 · v0.1.0</v-card-subtitle>
+        <v-card-subtitle>开源桌面客户端 · v0.1.4</v-card-subtitle>
       </v-card-item>
       <v-card-text class="text-caption text-medium-emphasis">
         基于 Tauri + Vue 3 + Vuetify 4 + Pinia + VueUse 构建，通过 AstrBot OpenAPI 通信。

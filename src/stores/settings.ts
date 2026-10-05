@@ -19,7 +19,9 @@ export interface PersistedSettings {
 }
 
 const DEFAULT_SETTINGS: PersistedSettings = {
-  baseUrl: "http://139.196.225.114:6185",
+  // No default server: the user must enter their own AstrBot endpoint so we
+  // never hard-code or leak a third-party address into the app.
+  baseUrl: "",
   apiKey: "",
   theme: "astrbotDark",
   notifyEnabled: true,

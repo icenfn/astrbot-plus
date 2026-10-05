@@ -1,6 +1,6 @@
 [package]
 name = "astrbot-plus"
-version = "0.1.3"
+version = "0.1.4"
 description = "AstrBot+ — a modern desktop client for AstrBot"
 authors = ["astrbot-plus contributors"]
 license = "MIT"

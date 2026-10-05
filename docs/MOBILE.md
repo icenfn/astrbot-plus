@@ -44,9 +44,17 @@ AstrBot 默认监听 `http://`（非 https），Android 9+ 默认禁止明文流
 `AndroidManifest.xml` 打补丁加入 `android:usesCleartextTraffic="true"`。本地构建可手动编辑
 `src-tauri/gen/android/app/src/main/AndroidManifest.xml`。
 
-## Android 图标
+## 应用图标
 
-`tauri android init` 会用模板默认图标覆盖 `app/src/main/res/`。因此构建流程中会执行：
+图标由 `scripts/gen_icons.py` 统一生成（`python3 scripts/gen_icons.py`），**不要**再用
+`npx tauri icon`——它会把素材按满幅渲染，使桌面与 Android 图标看起来被放大/裁剪，
+并会重建 Android 自适应图标（前景占满 108dp 画布，被系统蒙版放大）。生成脚本会：
+
+- 桌面端：把 `public/logo.svg` 缩放到约 84% 后居中，四周留出透明边距；
+- Android 自适应图标：全幅渐变背景层 + 位于安全区（约 58%）内的透明前景层；
+- Android 旧版（≤ 7.1）：方形与圆形启动图标。
+
+`tauri android init` 会用模板默认图标覆盖 `app/src/main/res/`，因此构建流程中会执行：
 
 ```bash
 cp -r src-tauri/icons/android/. src-tauri/gen/android/app/src/main/res/

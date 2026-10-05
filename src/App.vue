@@ -84,14 +84,21 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app-shell {
+  /* Pinned to the *visual* viewport. useVisualViewport() writes
+     --app-height / --app-offset-top from window.visualViewport, so when the
+     on-screen keyboard opens the shell shrinks to the visible area and is
+     offset below the (optional) top bar — the composer then always sits
+     directly above the keyboard instead of being covered by it. */
+  position: fixed;
+  top: var(--app-offset-top, 0px);
+  left: 0;
+  right: 0;
+  width: 100%;
+  height: var(--app-height, 100dvh);
   display: flex;
   flex-direction: row;
-  height: 100vh;
-  /* --app-height mirrors window.visualViewport.height so the layout shrinks
-     when the on-screen keyboard opens. */
-  height: var(--app-height, 100dvh);
-  width: 100vw;
   overflow: hidden;
+  background: rgb(var(--v-theme-background));
 }
 .app-shell.is-mobile {
   flex-direction: column;

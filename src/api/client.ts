@@ -10,7 +10,6 @@ import type {
   HistoryEntry,
   MessagePart,
   ProviderInfo,
-  SessionInfo,
 } from "./types";
 
 export interface AstrbotConfig {
@@ -187,18 +186,6 @@ export class AstrbotClient {
     return env?.data?.conversations ?? [];
   }
 
-  async listSessions(params: { platform?: string; search?: string } = {}): Promise<SessionInfo[]> {
-    const env = (await this.alova
-      .Get("/sessions", {
-        params: {
-          ...(params.platform ? { platform: params.platform } : {}),
-          ...(params.search ? { search: params.search } : {}),
-        },
-      })
-      .send()) as ApiEnvelope<{ sessions: SessionInfo[] }>;
-    return env?.data?.sessions ?? [];
-  }
-
   /**
    * Fetch a single conversation (including its full history).
    * The detail endpoint requires `user_id` (the conversation's umo) and wraps
@@ -218,19 +205,16 @@ export class AstrbotClient {
    * conversation's `user_id` (the umo) as a query parameter.
    */
   async deleteConversation(cid: string, userId: string): Promise<void> {
+    // `user_id` MUST be sent as a *query* parameter. alova's
+    // `Delete(url, data, config)` treats the second argument as the request
+    // body (not config), so passing `{ params: { user_id } }` there silently
+    // dropped the parameter and the server replied `422 Unprocessable Entity`
+    // (missing required query field `user_id`). Encoding it into the URL fixes
+    // the deletion.
+    const query = new URLSearchParams({ user_id: userId }).toString();
     await this.alova
-      .Delete(`/conversations/${encodeURIComponent(cid)}`, { params: { user_id: userId } })
+      .Delete(`/conversations/${encodeURIComponent(cid)}?${query}`)
       .send();
-  }
-
-  /** Upload a file and return its attachment id (used for image/file parts). */
-  async uploadFile(file: File): Promise<string> {
-    const form = new FormData();
-    form.append("file", file);
-    const body = (await this.alova.Post("/file", form).send()) as {
-      data?: { attachment_id?: string; id?: string };
-    };
-    return body?.data?.attachment_id ?? body?.data?.id ?? "";
   }
 
   /**
@@ -323,11 +307,6 @@ export class AstrbotClient {
     }
     return full;
   }
-
-  /** Push a proactive text message to an existing conversation (imo push). */
-  async sendImMessage(umo: string, message: string): Promise<void> {
-    await this.alova.Post("/im/messages", { umo, message, type: "plain" }).send();
-  }
 }
 
 /** Strip the injected <system_reminder> breadcrumb from a user turn. */
@@ -404,8 +383,4 @@ export function toContact(c: Conversation): Contact {
     lastMessage: summary.lastText,
     messageCount: summary.count,
   };
-}
-
-export function uid(prefix = "c"): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }

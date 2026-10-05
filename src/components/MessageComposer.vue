@@ -17,11 +17,16 @@ function resize() {
 watch(text, () => nextTick(resize));
 
 /**
- * When the keyboard opens, some Android WebViews do not resize the layout fast
- * enough, so nudge the composer back into view once the keyboard animation
- * settles.
+ * Fallback for WebViews without the VisualViewport API.
+ *
+ * The primary mobile keyboard fix is the fixed-position `.app-shell` bound to
+ * `window.visualViewport` (see `useVisualViewport`): the whole layout — and
+ * therefore this composer — is pinned to the visible area directly above the
+ * on-screen keyboard. Only when that API is unavailable do we nudge the
+ * (then-scrollable) composer back into view so it is not covered.
  */
 function keepVisible() {
+  if (window.visualViewport) return;
   const scroll = () => el.value?.scrollIntoView({ block: "end" });
   setTimeout(scroll, 50);
   setTimeout(scroll, 300);

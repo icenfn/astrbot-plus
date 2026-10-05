@@ -16,6 +16,31 @@ const { isMobile } = usePlatform();
 
 const scrollEl = ref<HTMLElement | null>(null);
 
+/** Whether the view is (still) scrolled to the bottom of the thread. */
+const pinned = ref(true);
+
+/** Track whether the user is reading at the bottom (or has scrolled up). */
+function onMessagesScroll() {
+  const el = scrollEl.value;
+  if (!el) return;
+  pinned.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+}
+
+/**
+ * Scroll the message list to the bottom.
+ * `force` jumps regardless of the current position (used when a message is
+ * sent or when a different conversation is opened); otherwise the jump only
+ * happens while the user is already pinned to the bottom, so reading history
+ * is not interrupted by an incoming/streaming message.
+ */
+async function scrollToBottom(force = false) {
+  await nextTick();
+  const el = scrollEl.value;
+  if (!el) return;
+  if (!force && !pinned.value) return;
+  el.scrollTop = el.scrollHeight;
+}
+
 const isGroup = computed(() => activeContact.value?.messageType === "GroupMessage");
 
 const platformLabel = computed(() => {
@@ -34,18 +59,21 @@ const platformLabel = computed(() => {
   return map[p] || p;
 });
 
-async function scrollToBottom() {
-  await nextTick();
-  const el = scrollEl.value;
-  if (el) el.scrollTop = el.scrollHeight;
-}
-
-// Auto-scroll as new content streams in.
+// A new message appears (history load / send): always jump to the bottom.
+watch(() => activeThread.value.messages.length, () => scrollToBottom(true));
+// Streaming text grows token by token: keep the view pinned to the bottom.
 watch(
   () => activeThread.value.messages.map((m) => m.text).join("\n"),
   () => scrollToBottom(),
 );
-watch(() => activeContact.value?.umo, () => scrollToBottom());
+// Opening a different conversation: reset the pin and land at the bottom.
+watch(
+  () => activeContact.value?.umo,
+  () => {
+    pinned.value = true;
+    scrollToBottom(true);
+  },
+);
 
 function closeChat() {
   chat.activeUmo = "";
@@ -54,7 +82,7 @@ function closeChat() {
 async function onSend(text: string) {
   const contact = activeContact.value;
   if (!contact) return;
-  await scrollToBottom();
+  await scrollToBottom(true);
   await chat.sendMessage(text, contact);
 
   // Raise a system notification for the reply if the app is in the background.
@@ -103,7 +131,7 @@ async function onSend(text: string) {
         />
       </header>
 
-      <div ref="scrollEl" class="messages chat-scroll">
+      <div ref="scrollEl" class="messages chat-scroll" @scroll.passive="onMessagesScroll">
         <div v-if="!activeThread.messages.length" class="hint">
           <v-icon icon="mdi-message-outline" size="34" class="mb-2" />
           <p>还没有消息，发送一条开始对话吧。</p>
@@ -166,6 +194,9 @@ async function onSend(text: string) {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* Keep the latest message above the on-screen keyboard / composer. */
+  scroll-padding-bottom: 12px;
+  overscroll-behavior: contain;
 }
 .hint {
   margin: auto;
