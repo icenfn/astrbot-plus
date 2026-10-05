@@ -3,10 +3,13 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
+import { useChatStore } from "@/stores/chat";
 
 const route = useRoute();
 const settings = useSettingsStore();
+const chat = useChatStore();
 const { connected } = storeToRefs(settings);
+const { totalUnread } = storeToRefs(chat);
 
 const tabs = [
   { to: "/", name: "chats", label: "聊天", icon: "mdi-forum-outline", active: "mdi-forum" },
@@ -21,6 +24,7 @@ const tabs = [
 ];
 
 const current = computed(() => route.name);
+const unreadLabel = computed(() => (totalUnread.value > 99 ? "99+" : String(totalUnread.value)));
 </script>
 
 <template>
@@ -32,8 +36,20 @@ const current = computed(() => route.name);
       class="tab"
       :class="{ 'is-active': current === tab.name }"
     >
+      <!-- Chats tab: unread badge -->
       <v-badge
-        v-if="tab.name === 'settings'"
+        v-if="tab.name === 'chats'"
+        :content="unreadLabel"
+        :model-value="totalUnread > 0"
+        color="error"
+        offset-x="4"
+        offset-y="2"
+      >
+        <v-icon :icon="current === tab.name ? tab.active : tab.icon" size="24" />
+      </v-badge>
+      <!-- Settings tab: connection dot -->
+      <v-badge
+        v-else-if="tab.name === 'settings'"
         dot
         :color="connected ? 'success' : 'grey'"
         offset-x="2"

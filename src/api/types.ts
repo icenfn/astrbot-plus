@@ -24,7 +24,7 @@ export interface Conversation {
   created_at: number;
   updated_at: number;
   umo_info: UmoInfo;
-  /** JSON-encoded history array (string) when returned by the list endpoint. */
+  /** JSON-encoded history array (string) or an already-parsed array. */
   history?: string | HistoryEntry[];
 }
 
@@ -80,8 +80,11 @@ export interface Contact {
   messageType: string;
   username: string;
   avatarSeed: string;
-  lastMessage?: string;
   updatedAt: number;
+  /** Latest message text, used as the chat-list subtitle. */
+  lastMessage?: string;
+  /** Number of real messages in the conversation (drives unread counting). */
+  messageCount?: number;
 }
 
 export interface ProviderInfo {

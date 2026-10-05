@@ -212,6 +212,17 @@ export class AstrbotClient {
     return ((env as ApiEnvelope<Conversation>)?.data ?? env) as Conversation;
   }
 
+  /**
+   * Delete a conversation.
+   * AstrBot exposes `DELETE /api/v1/conversations/{cid}` and requires the
+   * conversation's `user_id` (the umo) as a query parameter.
+   */
+  async deleteConversation(cid: string, userId: string): Promise<void> {
+    await this.alova
+      .Delete(`/conversations/${encodeURIComponent(cid)}`, { params: { user_id: userId } })
+      .send();
+  }
+
   /** Upload a file and return its attachment id (used for image/file parts). */
   async uploadFile(file: File): Promise<string> {
     const form = new FormData();
@@ -319,6 +330,23 @@ export class AstrbotClient {
   }
 }
 
+/** Strip the injected <system_reminder> breadcrumb from a user turn. */
+function cleanText(parts: MessagePart[]): string {
+  return parts
+    .filter((p): p is MessagePart => !!p && typeof p === "object")
+    .map((p) => p.text ?? "")
+    .join("")
+    .replace(/<system_reminder>[\s\S]*?<\/system_reminder>/g, "")
+    .trim();
+}
+
+function entryText(entry: HistoryEntry): string {
+  const content = entry?.content;
+  if (Array.isArray(content)) return cleanText(content as MessagePart[]);
+  if (typeof content === "string") return content.trim();
+  return "";
+}
+
 /** Parse a conversation's history (string or array) into chat bubbles. */
 export function parseHistory(conversation: Conversation | undefined | null): ChatMessage[] {
   if (!conversation?.history) return [];
@@ -336,27 +364,32 @@ export function parseHistory(conversation: Conversation | undefined | null): Cha
     if (!entry || typeof entry !== "object") continue;
     if (entry.role === "_checkpoint" || entry.role === "system") continue;
     const role: ChatMessage["role"] = entry.role === "assistant" ? "assistant" : "user";
-    const parts = Array.isArray(entry.content) ? entry.content : [];
-    const text = parts
-      .filter((p): p is MessagePart => !!p && typeof p === "object")
-      .map((p) => p.text ?? "")
-      .join("")
-      // Strip the injected <system_reminder> breadcrumb from user turns.
-      .replace(/<system_reminder>[\s\S]*?<\/system_reminder>/g, "")
-      .trim();
+    const text = entryText(entry);
     if (!text) continue;
-    messages.push({
-      role,
-      text,
-      created_at: "",
-    });
+    messages.push({ role, text, created_at: "" });
   }
   return messages;
+}
+
+/**
+ * Summarize a conversation's history: how many real messages it has and the
+ * latest message text (used for the chat-list subtitle and the unread badge).
+ */
+export function summarizeHistory(conversation: Conversation | undefined | null): {
+  count: number;
+  lastText: string;
+  lastRole: ChatMessage["role"] | "";
+} {
+  const messages = parseHistory(conversation);
+  if (!messages.length) return { count: 0, lastText: "", lastRole: "" };
+  const last = messages[messages.length - 1];
+  return { count: messages.length, lastText: last.text, lastRole: last.role };
 }
 
 /** Turn a raw conversation row into a UI contact. */
 export function toContact(c: Conversation): Contact {
   const info = c.umo_info;
+  const summary = summarizeHistory(c);
   return {
     umo: c.user_id || info?.umo || c.cid,
     // The detail endpoint needs the conversation's own user_id (the umo).
@@ -368,6 +401,8 @@ export function toContact(c: Conversation): Contact {
     username: info?.creator_sender_id || info?.display_name || "webchat",
     avatarSeed: info?.display_name || c.cid,
     updatedAt: c.updated_at || 0,
+    lastMessage: summary.lastText,
+    messageCount: summary.count,
   };
 }
 

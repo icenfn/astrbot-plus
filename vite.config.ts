@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
 import vuetify from "vite-plugin-vuetify";
+import legacy from "@vitejs/plugin-legacy";
 import { fileURLToPath, URL } from "node:url";
 
 // Tauri expects a fixed port and no clearing of the terminal.
@@ -8,6 +9,13 @@ export default defineConfig({
   plugins: [
     vue(),
     vuetify({ autoImport: true }),
+    // Emit a legacy (nomodule) bundle with core-js polyfills so the app also
+    // runs on older Android WebViews / system webviews.
+    legacy({
+      targets: ["defaults", "chrome >= 61", "android >= 7", "not IE 11"],
+      modernPolyfills: true,
+      renderLegacyChunks: true,
+    }),
   ],
   resolve: {
     alias: {
@@ -27,10 +35,10 @@ export default defineConfig({
   },
   envPrefix: ["VITE_", "TAURI_"],
   build: {
-    // Tauri uses Chromium on Windows and WebKit on macOS/Linux.
-    target: "esnext",
-    minify: "esbuild",
+    // Emit older syntax so the legacy bundle (and native WebView) can parse it.
+    target: "es2015",
+    minify: "terser",
     sourcemap: false,
-    chunkSizeWarningLimit: 2000,
+    chunkSizeWarningLimit: 3000,
   },
 });

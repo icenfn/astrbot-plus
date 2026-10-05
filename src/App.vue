@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { onMounted, watch } from "vue";
+import { onBeforeUnmount, onMounted, watch } from "vue";
 import { useTheme } from "vuetify";
 import { storeToRefs } from "pinia";
 import { useRouter } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
 import { usePlatform } from "@/composables/usePlatform";
+import { useVisualViewport } from "@/composables/useVisualViewport";
+import { useWindow } from "@/composables/useWindow";
 import AppSidebar from "@/components/AppSidebar.vue";
 import AppMobileNav from "@/components/AppMobileNav.vue";
-import { useWindow } from "@/composables/useWindow";
 
 const theme = useTheme();
 const router = useRouter();
@@ -17,6 +18,9 @@ const chat = useChatStore();
 const { isDark } = storeToRefs(settings);
 const { isMobile } = usePlatform();
 const { installCloseHandler } = useWindow();
+
+// Keep the app shell pinned to the visual viewport (keyboard-safe).
+useVisualViewport();
 
 // Keep the Vuetify theme in sync with the settings store.
 watch(
@@ -36,14 +40,31 @@ function onAndroidBack() {
   if (router.currentRoute.value.name !== "chats") router.push("/");
 }
 
+// Refresh the list (and poll for new messages) whenever a conversation closes
+// so the unread badges stay accurate.
+watch(
+  () => chat.activeUmo,
+  (umo) => {
+    if (!umo) void chat.loadContacts({ detectNew: true });
+  },
+);
+
 onMounted(async () => {
   if (settings.hasCredentials) {
     const ok = await settings.testConnection();
-    if (ok) await chat.loadContacts();
+    if (ok) {
+      await chat.loadContacts();
+      chat.startPolling();
+    }
   }
   // Desktop: run in the background (hide instead of quitting) on close.
   installCloseHandler({ closeToTray: settings.settings.closeToTray });
   window.addEventListener("android:back", onAndroidBack);
+});
+
+onBeforeUnmount(() => {
+  chat.stopPolling();
+  window.removeEventListener("android:back", onAndroidBack);
 });
 </script>
 
@@ -66,8 +87,9 @@ onMounted(async () => {
   display: flex;
   flex-direction: row;
   height: 100vh;
-  /* dvh keeps the layout correct when the mobile keyboard shrinks the viewport */
-  height: 100dvh;
+  /* --app-height mirrors window.visualViewport.height so the layout shrinks
+     when the on-screen keyboard opens. */
+  height: var(--app-height, 100dvh);
   width: 100vw;
   overflow: hidden;
 }

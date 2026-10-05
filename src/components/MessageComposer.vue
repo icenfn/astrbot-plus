@@ -16,6 +16,17 @@ function resize() {
 
 watch(text, () => nextTick(resize));
 
+/**
+ * When the keyboard opens, some Android WebViews do not resize the layout fast
+ * enough, so nudge the composer back into view once the keyboard animation
+ * settles.
+ */
+function keepVisible() {
+  const scroll = () => el.value?.scrollIntoView({ block: "end" });
+  setTimeout(scroll, 50);
+  setTimeout(scroll, 300);
+}
+
 function submit() {
   const value = text.value.trim();
   if (!value || props.busy) return;
@@ -40,7 +51,9 @@ function onKeydown(e: KeyboardEvent) {
         v-model="text"
         class="input"
         rows="1"
+        enterkeyhint="send"
         placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+        @focus="keepVisible"
         @keydown="onKeydown"
       ></textarea>
       <v-btn
@@ -59,6 +72,7 @@ function onKeydown(e: KeyboardEvent) {
 <style scoped>
 .composer {
   flex: 0 0 auto;
+  /* extra bottom padding clears the home indicator / gesture bar */
   padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
   background: rgb(var(--v-theme-surface));
   border-top: 1px solid rgba(128, 150, 170, 0.14);
@@ -78,7 +92,7 @@ function onKeydown(e: KeyboardEvent) {
   resize: none;
   background: transparent;
   color: rgb(var(--v-theme-on-surface));
-  font-size: 14.5px;
+  font-size: 16px; /* >=16px prevents mobile browsers from auto-zooming the field */
   line-height: 1.5;
   max-height: 140px;
   overflow-y: auto;
