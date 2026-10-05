@@ -6,7 +6,7 @@ import type { Contact } from "@/api/types";
 import ContactItem from "./ContactItem.vue";
 
 const chat = useChatStore();
-const { activeUmo, filteredContacts, loadingContacts, contactsError, filter, search, contacts } =
+const { activeUmo, filteredContacts, loadingContacts, contactsError, filter, search, contacts, wsStatus } =
   storeToRefs(chat);
 
 const filters = [
@@ -14,6 +14,22 @@ const filters = [
   { label: "单聊", value: "FriendMessage" as const, icon: "mdi-account" },
   { label: "群聊", value: "GroupMessage" as const, icon: "mdi-account-group" },
 ];
+
+const wsLabel = computed(() => {
+  switch (wsStatus.value) {
+    case "open":
+      return "实时连接";
+    case "connecting":
+      return "连接中…";
+    case "closed":
+      return "已断开";
+    default:
+      return "未连接";
+  }
+});
+const wsColor = computed(() =>
+  wsStatus.value === "open" ? "success" : wsStatus.value === "connecting" ? "warning" : "grey",
+);
 
 // --- Action sheet (long-press menu) ------------------------------------------
 const menuContact = ref<Contact | null>(null);
@@ -67,7 +83,27 @@ async function confirmDelete() {
 }
 
 async function refresh() {
+  chat.connectWs();
   await chat.loadContacts({ detectNew: true });
+}
+
+// --- New chat ----------------------------------------------------------------
+const newOpen = ref(false);
+const newType = ref<"FriendMessage" | "GroupMessage">("FriendMessage");
+const newName = ref("");
+const newId = ref("");
+
+function openNew() {
+  newType.value = "FriendMessage";
+  newName.value = "";
+  newId.value = "";
+  newOpen.value = true;
+}
+
+function confirmNew() {
+  if (!newName.value.trim()) return;
+  chat.createChat({ name: newName.value.trim(), type: newType.value, id: newId.value.trim() });
+  newOpen.value = false;
 }
 </script>
 
@@ -76,13 +112,26 @@ async function refresh() {
     <header class="head">
       <div class="head-top">
         <h2 class="title">AstrBot+</h2>
-        <v-btn
-          icon="mdi-refresh"
-          size="small"
-          variant="text"
-          :loading="loadingContacts"
-          @click="refresh"
-        />
+        <div class="head-actions">
+          <v-chip size="x-small" :color="wsColor" variant="tonal" label class="ws-chip">
+            {{ wsLabel }}
+          </v-chip>
+          <v-btn
+            icon="mdi-message-plus-outline"
+            size="small"
+            variant="text"
+            color="primary"
+            title="发起新会话"
+            @click="openNew"
+          />
+          <v-btn
+            icon="mdi-refresh"
+            size="small"
+            variant="text"
+            :loading="loadingContacts"
+            @click="refresh"
+          />
+        </div>
       </div>
       <v-text-field
         v-model="search"
@@ -128,7 +177,7 @@ async function refresh() {
         <v-icon icon="mdi-message-text-outline" size="40" class="mb-2" />
         <p class="text-medium-emphasis">暂无会话</p>
         <p class="text-caption text-medium-emphasis text-center">
-          在 AstrBot 中产生对话后，会话会显示在这里。
+          点击右上角「新建」可发起单聊或群聊；在 AstrBot 中产生的 AstrBot+ 会话也会显示在这里。
         </p>
       </div>
 
@@ -144,6 +193,41 @@ async function refresh() {
         />
       </div>
     </div>
+
+    <!-- New chat dialog -->
+    <v-dialog v-model="newOpen" max-width="420">
+      <v-card>
+        <v-card-title>发起新会话</v-card-title>
+        <v-card-text class="d-flex flex-column ga-4 pt-2">
+          <v-btn-toggle v-model="newType" mandatory color="primary" variant="tonal" divided>
+            <v-btn value="FriendMessage" prepend-icon="mdi-account">单聊</v-btn>
+            <v-btn value="GroupMessage" prepend-icon="mdi-account-group">群聊</v-btn>
+          </v-btn-toggle>
+          <v-text-field
+            v-model="newName"
+            :label="newType === 'FriendMessage' ? '对方名称' : '群名称'"
+            placeholder="例如：小明 / 开发群"
+            prepend-inner-icon="mdi-card-account-details-outline"
+            hide-details
+          />
+          <v-text-field
+            v-model="newId"
+            label="会话标识（可选）"
+            :placeholder="newType === 'FriendMessage' ? '对方用户 ID，留空则用名称' : '群 ID，留空则用名称'"
+            prepend-inner-icon="mdi-identifier"
+            hint="用于生成 UMO：astrbot-plus:{单聊|群聊}:标识。留空则使用上方名称。"
+            persistent-hint
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="text" @click="newOpen = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :disabled="!newName.trim()" @click="confirmNew">
+            创建并打开
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Long-press / right-click action sheet -->
     <v-dialog v-model="menuOpen" max-width="360">
@@ -217,6 +301,14 @@ async function refresh() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.ws-chip {
+  margin-right: 4px;
 }
 .title {
   font-size: 18px;

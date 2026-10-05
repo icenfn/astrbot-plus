@@ -2,14 +2,13 @@ import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import { parseHistory, toContact } from "@/api/client";
 import type { ChatMessage, Contact } from "@/api/types";
+import { AstrbotWsClient, type WsMessageFrame, type WsStatus } from "@/api/ws";
 import { useSettingsStore } from "./settings";
 
 interface Thread {
   /** Running-last messages for this conversation, keyed by umo. */
   messages: ChatMessage[];
-  /** Server session id used to keep context across turns (from chat SSE). */
-  sessionId?: string;
-  /** Whether the thread is currently streaming a reply. */
+  /** Whether the thread is currently waiting for a reply. */
   busy: boolean;
   loaded: boolean;
 }
@@ -19,7 +18,9 @@ function emptyThread(): Thread {
 }
 
 /** How often the conversation list is refreshed while the app is idle. */
-const POLL_INTERVAL = 15000;
+const POLL_INTERVAL = 25000;
+/** Only conversations of the AstrBot+ platform are shown. */
+const PLATFORM = "astrbot-plus";
 
 export const useChatStore = defineStore("chat", () => {
   const settings = useSettingsStore();
@@ -37,7 +38,10 @@ export const useChatStore = defineStore("chat", () => {
   /** Last observed message count per umo, used to detect new messages. */
   const seenCounts = ref<Record<string, number>>({});
   const initialized = ref(false);
+  const wsStatus = ref<WsStatus>("idle");
+
   let pollTimer: number | undefined;
+  let ws: AstrbotWsClient | null = null;
 
   const activeContact = computed(
     () => contacts.value.find((c) => c.umo === activeUmo.value) || null,
@@ -71,12 +75,10 @@ export const useChatStore = defineStore("chat", () => {
     return unread.value[umo] ?? 0;
   }
 
-  /**
-   * Load the conversation list.
-   * When `detectNew` is true (polling / later refreshes) any increase in a
-   * conversation's message count is recorded as unread — except for the
-   * conversation currently open.
-   */
+  // ------------------------------------------------------------------ #
+  // Conversation list (HTTP) — used to enumerate AstrBot+ conversations
+  // ------------------------------------------------------------------ #
+
   async function loadContacts(opts: { detectNew?: boolean } = {}) {
     if (!settings.hasCredentials) return;
     loadingContacts.value = true;
@@ -87,8 +89,11 @@ export const useChatStore = defineStore("chat", () => {
         page: 1,
         pageSize: 200,
         includeHistory: true,
+        platforms: PLATFORM,
       });
-      const next = rows.map(toContact);
+      // Defensive: the API filter may not be honoured by every AstrBot build,
+      // so only keep AstrBot+ conversations on the client as well.
+      const next = rows.map(toContact).filter((c) => (c.platform || "") === PLATFORM);
       const detect = opts.detectNew ?? initialized.value;
       for (const c of next) {
         const count = c.messageCount ?? 0;
@@ -98,7 +103,12 @@ export const useChatStore = defineStore("chat", () => {
         }
         seenCounts.value[c.umo] = count;
       }
-      contacts.value = next;
+      // Keep locally-created (not yet persisted) chats that the server has not
+      // returned yet, so a brand-new conversation does not vanish.
+      const localOnly = contacts.value.filter(
+        (c) => !c.cid && !next.some((n) => n.umo === c.umo),
+      );
+      contacts.value = [...next, ...localOnly];
       initialized.value = true;
     } catch (e) {
       contactsError.value = e instanceof Error ? e.message : String(e);
@@ -121,15 +131,96 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  // ------------------------------------------------------------------ #
+  // WebSocket transport
+  // ------------------------------------------------------------------ #
+
+  function composedWsUrl(): string {
+    const url = settings.settings.wsUrl.trim();
+    if (!url) return "";
+    const token = settings.settings.wsToken.trim();
+    if (!token) return url;
+    return `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+  }
+
+  /** Open the WebSocket connection (keyboard-free chat transport). */
+  function connectWs() {
+    const url = composedWsUrl();
+    if (!url) {
+      wsStatus.value = "idle";
+      return;
+    }
+    disconnectWs();
+    ws = new AstrbotWsClient({
+      url,
+      onStatus: (s) => {
+        wsStatus.value = s;
+      },
+      onMessage: (frame) => handleFrame(frame),
+    });
+    ws.connect();
+  }
+
+  function disconnectWs() {
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+    wsStatus.value = "idle";
+  }
+
+  /** Handle an inbound frame from the plugin. */
+  function handleFrame(frame: WsMessageFrame) {
+    const type = String(frame.type || "");
+    if (type === "message") {
+      const umo = String(frame.umo || "");
+      if (!umo) return;
+      const text = String(frame.text ?? "");
+      const role: ChatMessage["role"] = frame.role === "user" ? "user" : "assistant";
+
+      const thread = threads.value[umo] || (threads.value[umo] = emptyThread());
+      thread.loaded = true;
+      const last = thread.messages[thread.messages.length - 1];
+      if (last && last.streaming && last.role === "assistant") {
+        last.text = text;
+        last.streaming = false;
+      } else {
+        thread.messages.push({ role, text, created_at: new Date().toISOString() });
+      }
+      thread.busy = false;
+
+      const record = contacts.value.find((c) => c.umo === umo);
+      if (record) {
+        record.updatedAt = Date.now() / 1000;
+        record.lastMessage = text;
+        record.messageCount = (record.messageCount ?? 0) + 1;
+        seenCounts.value[umo] = record.messageCount;
+      } else {
+        // A conversation we do not know about yet — refresh the list.
+        void loadContacts({ detectNew: true });
+      }
+      if (umo !== activeUmo.value) {
+        unread.value[umo] = (unread.value[umo] ?? 0) + 1;
+      }
+      return;
+    }
+    if (type === "ready") {
+      wsStatus.value = "open";
+    }
+  }
+
+  // ------------------------------------------------------------------ #
+  // Threads
+  // ------------------------------------------------------------------ #
+
   async function ensureThreadLoaded(contact: Contact) {
     const t = threads.value[contact.umo];
     if (t?.loaded) return;
     // Mark as loaded up-front so a slow/failed fetch is not retried in a loop.
     threads.value[contact.umo] = { messages: [], busy: false, loaded: true };
+    if (!contact.cid) return; // brand-new chat: no server history yet
     try {
       const client = settings.buildClient();
-      // The conversation detail endpoint needs the row's own user_id (the umo),
-      // not the display / sender name.
       const conv = await client.getConversation(contact.cid, contact.userId || contact.umo);
       threads.value[contact.umo].messages = parseHistory(conv);
     } catch {
@@ -152,10 +243,12 @@ export const useChatStore = defineStore("chat", () => {
     unread.value[umo] = Math.max(1, unread.value[umo] ?? 0);
   }
 
-  /** Delete a conversation on the server and locally. */
+  /** Delete a conversation on the server (when persisted) and locally. */
   async function deleteContact(contact: Contact) {
-    const client = settings.buildClient();
-    await client.deleteConversation(contact.cid, contact.userId || contact.umo);
+    if (contact.cid) {
+      const client = settings.buildClient();
+      await client.deleteConversation(contact.cid, contact.userId || contact.umo);
+    }
     contacts.value = contacts.value.filter((c) => c.umo !== contact.umo);
     delete threads.value[contact.umo];
     delete unread.value[contact.umo];
@@ -164,14 +257,46 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   /**
-   * Send a plain-text message in the active conversation and stream the reply.
-   * A new conversation (no cid yet) is created server-side via username.
+   * Create (or open) a single- or group-chat conversation.
+   * The UMO follows AstrBot's `{platform}:{message_type}:{session_id}` scheme.
    */
-  async function sendMessage(text: string, contact: Contact): Promise<void> {
+  function createChat(input: {
+    name: string;
+    type: "FriendMessage" | "GroupMessage";
+    id?: string;
+  }): Contact | null {
+    const sessionId = (input.id || input.name || "").trim();
+    if (!sessionId) return null;
+    const umo = `${PLATFORM}:${input.type}:${sessionId}`;
+    let contact = contacts.value.find((c) => c.umo === umo);
+    if (!contact) {
+      contact = {
+        umo,
+        userId: umo,
+        cid: "",
+        displayName: (input.name || sessionId).trim(),
+        platform: PLATFORM,
+        messageType: input.type,
+        username: "astrbot_plus",
+        avatarSeed: input.name || sessionId,
+        updatedAt: Date.now() / 1000,
+        lastMessage: "",
+        messageCount: 0,
+      };
+      contacts.value.push(contact);
+    }
+    void openContact(contact);
+    return contact;
+  }
+
+  /**
+   * Send a text message over the WebSocket and append it to the thread.
+   * The assistant reply arrives asynchronously via a `message` frame.
+   */
+  function sendMessage(text: string, contact: Contact): void {
     const body = text.trim();
     if (!body || !contact) return;
-    const thread =
-      threads.value[contact.umo] || (threads.value[contact.umo] = emptyThread());
+    const thread = threads.value[contact.umo] || (threads.value[contact.umo] = emptyThread());
     thread.loaded = true;
 
     const now = new Date().toISOString();
@@ -185,43 +310,31 @@ export const useChatStore = defineStore("chat", () => {
     thread.messages.push(assistant);
     thread.busy = true;
 
-    try {
-      const client = settings.buildClient();
-      await client.chatStream(
-        {
-          username: contact.username || "astrbot_plus",
-          message: body,
-          sessionId: thread.sessionId,
-          conversationId: contact.cid || undefined,
-        },
-        {
-          onSessionId: (sid) => {
-            thread.sessionId = sid;
-          },
-          onDelta: (_d, full) => {
-            assistant.text = full;
-          },
-          onTokens: (tk) => {
-            assistant.tokens = tk;
-          },
-        },
-      );
-      if (!assistant.text) assistant.text = "(空回复)";
-    } catch (e) {
-      assistant.error = true;
-      assistant.text = `发送失败：${e instanceof Error ? e.message : String(e)}`;
-    } finally {
+    if (!ws || wsStatus.value !== "open") connectWs();
+    ws?.send({
+      type: "send",
+      umo: contact.umo,
+      text: body,
+      name: contact.displayName,
+      client_id: `${Date.now()}`,
+    });
+
+    const record = contacts.value.find((c) => c.umo === contact.umo);
+    if (record) {
+      record.updatedAt = Date.now() / 1000;
+      record.lastMessage = body;
+      record.messageCount = (record.messageCount ?? 0) + 1;
+      seenCounts.value[contact.umo] = record.messageCount;
+    }
+
+    // Safety net: clear the spinner if the adapter never answers.
+    window.setTimeout(() => {
+      if (!assistant.streaming) return;
       assistant.streaming = false;
       thread.busy = false;
-      const record = contacts.value.find((c) => c.umo === contact.umo);
-      if (record) {
-        record.updatedAt = Date.now() / 1000;
-        record.lastMessage = assistant.text;
-        record.messageCount = (record.messageCount ?? 0) + 2;
-        // Keep the baseline in sync so polling does not double-count our own turn.
-        seenCounts.value[contact.umo] = record.messageCount;
-      }
-    }
+      const idx = thread.messages.indexOf(assistant);
+      if (idx >= 0 && !assistant.text) thread.messages.splice(idx, 1);
+    }, 90000);
   }
 
   function clearThread(umo: string) {
@@ -243,13 +356,17 @@ export const useChatStore = defineStore("chat", () => {
     totalUnread,
     friendCount,
     groupCount,
+    wsStatus,
     loadContacts,
     startPolling,
     stopPolling,
+    connectWs,
+    disconnectWs,
     openContact,
     markRead,
     markUnread,
     deleteContact,
+    createChat,
     sendMessage,
     clearThread,
     unreadOf,

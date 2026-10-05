@@ -9,6 +9,10 @@ const STORAGE_KEY = "astrbot-plus.settings";
 export interface PersistedSettings {
   baseUrl: string;
   apiKey: string;
+  /** WebSocket endpoint of the astrbot_plugin_plus adapter, e.g. ws://ip:6199/ws */
+  wsUrl: string;
+  /** Optional token the plugin may require (?token=...). */
+  wsToken: string;
   theme: "system" | "astrbotDark" | "astrbotLight";
   notifyEnabled: boolean;
   notifyOnlyBackground: boolean;
@@ -23,6 +27,8 @@ const DEFAULT_SETTINGS: PersistedSettings = {
   // never hard-code or leak a third-party address into the app.
   baseUrl: "",
   apiKey: "",
+  wsUrl: "",
+  wsToken: "",
   theme: "astrbotDark",
   notifyEnabled: true,
   notifyOnlyBackground: true,

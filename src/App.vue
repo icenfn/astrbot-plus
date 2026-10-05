@@ -40,8 +40,7 @@ function onAndroidBack() {
   if (router.currentRoute.value.name !== "chats") router.push("/");
 }
 
-// Refresh the list (and poll for new messages) whenever a conversation closes
-// so the unread badges stay accurate.
+// Refresh the list whenever a conversation closes so unread badges stay accurate.
 watch(
   () => chat.activeUmo,
   (umo) => {
@@ -53,6 +52,8 @@ onMounted(async () => {
   if (settings.hasCredentials) {
     const ok = await settings.testConnection();
     if (ok) {
+      // Chat transport: a persistent WebSocket to the astrbot-plugin-plus adapter.
+      chat.connectWs();
       await chat.loadContacts();
       chat.startPolling();
     }
@@ -64,6 +65,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   chat.stopPolling();
+  chat.disconnectWs();
   window.removeEventListener("android:back", onAndroidBack);
 });
 </script>

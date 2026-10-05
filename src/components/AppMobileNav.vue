@@ -9,22 +9,16 @@ const route = useRoute();
 const settings = useSettingsStore();
 const chat = useChatStore();
 const { connected } = storeToRefs(settings);
-const { totalUnread } = storeToRefs(chat);
+const { totalUnread, wsStatus } = storeToRefs(chat);
 
 const tabs = [
   { to: "/", name: "chats", label: "聊天", icon: "mdi-forum-outline", active: "mdi-forum" },
-  {
-    to: "/contacts",
-    name: "contacts",
-    label: "会话",
-    icon: "mdi-account-multiple-outline",
-    active: "mdi-account-multiple",
-  },
   { to: "/settings", name: "settings", label: "设置", icon: "mdi-cog-outline", active: "mdi-cog" },
 ];
 
 const current = computed(() => route.name);
 const unreadLabel = computed(() => (totalUnread.value > 99 ? "99+" : String(totalUnread.value)));
+const serviceOk = computed(() => wsStatus.value === "open" || connected.value);
 </script>
 
 <template>
@@ -49,15 +43,14 @@ const unreadLabel = computed(() => (totalUnread.value > 99 ? "99+" : String(tota
       </v-badge>
       <!-- Settings tab: connection dot -->
       <v-badge
-        v-else-if="tab.name === 'settings'"
+        v-else
         dot
-        :color="connected ? 'success' : 'grey'"
+        :color="serviceOk ? 'success' : 'grey'"
         offset-x="2"
         offset-y="2"
       >
         <v-icon :icon="current === tab.name ? tab.active : tab.icon" size="24" />
       </v-badge>
-      <v-icon v-else :icon="current === tab.name ? tab.active : tab.icon" size="24" />
       <span class="label">{{ tab.label }}</span>
     </router-link>
   </nav>

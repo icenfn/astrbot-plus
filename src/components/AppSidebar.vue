@@ -3,23 +3,20 @@ import { computed } from "vue";
 import { useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
+import { useChatStore } from "@/stores/chat";
 
 const route = useRoute();
 const settings = useSettingsStore();
+const chat = useChatStore();
 const { isDark, connected } = storeToRefs(settings);
+const { wsStatus } = storeToRefs(chat);
 
 const items = [
   { icon: "mdi-forum-outline", active: "mdi-forum", to: "/", label: "聊天", name: "chats" },
-  {
-    icon: "mdi-account-multiple-outline",
-    active: "mdi-account-multiple",
-    to: "/contacts",
-    label: "会话",
-    name: "contacts",
-  },
 ];
 
 const current = computed(() => route.name);
+const wsOk = computed(() => wsStatus.value === "open");
 </script>
 
 <template>
@@ -52,7 +49,7 @@ const current = computed(() => route.name);
         title="设置"
       >
         <v-icon icon="mdi-cog-outline" size="22" />
-        <span class="status-dot" :class="connected ? 'ok' : 'off'"></span>
+        <span class="status-dot" :class="wsOk ? 'ok' : connected ? 'warn' : 'off'"></span>
       </router-link>
     </div>
   </aside>
@@ -118,6 +115,9 @@ const current = computed(() => route.name);
 }
 .status-dot.ok {
   background: #4caf50;
+}
+.status-dot.warn {
+  background: #ffb300;
 }
 .status-dot.off {
   background: #9e9e9e;

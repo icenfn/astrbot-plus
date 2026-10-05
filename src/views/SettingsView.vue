@@ -2,12 +2,15 @@
 import { onMounted, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
+import { useChatStore } from "@/stores/chat";
 import { notify } from "@/composables/useNotify";
 import { useWindow } from "@/composables/useWindow";
 import { isTauri } from "@/api/client";
 
 const settings = useSettingsStore();
+const chat = useChatStore();
 const { connecting, lastError, connected, botIds, providers } = storeToRefs(settings);
+const { wsStatus } = storeToRefs(chat);
 const { setAutoStart, isAutoStartEnabled } = useWindow();
 
 const revealKey = ref(false);
@@ -19,7 +22,10 @@ onMounted(async () => {
 
 async function reconnect() {
   const ok = await settings.testConnection();
-  if (ok) notify({ title: "AstrBot+", body: "连接成功" });
+  if (ok) {
+    chat.connectWs();
+    notify({ title: "AstrBot+", body: "连接成功" });
+  }
 }
 
 async function demoNotify() {
@@ -58,6 +64,8 @@ async function toggleAutoStart(value: boolean | null) {
           label="服务器地址"
           placeholder="http://localhost:6185"
           prepend-inner-icon="mdi-web"
+          hint="AstrBot 服务根地址，用于列出 AstrBot+ 会话列表"
+          persistent-hint
         />
         <v-text-field
           v-model="settings.settings.apiKey"
@@ -68,10 +76,32 @@ async function toggleAutoStart(value: boolean | null) {
           :append-inner-icon="revealKey ? 'mdi-eye-off' : 'mdi-eye'"
           @click:append-inner="revealKey = !revealKey"
         />
+        <v-text-field
+          v-model="settings.settings.wsUrl"
+          label="WebSocket 地址"
+          placeholder="ws://localhost:6199/ws"
+          prepend-inner-icon="mdi-transit-connection-variant"
+          hint="由 astrbot-plugin-plus 插件提供，聊天消息实时收发均经此 WebSocket"
+          persistent-hint
+        />
+        <v-text-field
+          v-model="settings.settings.wsToken"
+          label="WebSocket 令牌（可选）"
+          placeholder="留空表示不校验"
+          prepend-inner-icon="mdi-shield-key-outline"
+        />
         <div class="d-flex ga-2">
           <v-btn color="primary" :loading="connecting" prepend-icon="mdi-connection" @click="reconnect">
             测试连接
           </v-btn>
+          <v-chip
+            :color="wsStatus === 'open' ? 'success' : 'warning'"
+            variant="tonal"
+            size="small"
+            class="align-self-center"
+          >
+            WS：{{ wsStatus === "open" ? "已连接" : wsStatus === "connecting" ? "连接中" : wsStatus === "closed" ? "已断开" : "未连接" }}
+          </v-chip>
         </div>
         <div v-if="botIds.length" class="text-caption text-medium-emphasis">
           已发现的机器人：{{ botIds.join("、") }} · 提供商 {{ providers.length }} 个
@@ -166,11 +196,12 @@ async function toggleAutoStart(value: boolean | null) {
       <v-card-item>
         <template #prepend><v-icon icon="mdi-information-outline" color="primary" /></template>
         <v-card-title>AstrBot+</v-card-title>
-        <v-card-subtitle>开源桌面客户端 · v0.1.4</v-card-subtitle>
+        <v-card-subtitle>开源桌面客户端 · v0.2.0</v-card-subtitle>
       </v-card-item>
       <v-card-text class="text-caption text-medium-emphasis">
-        基于 Tauri + Vue 3 + Vuetify 4 + Pinia + VueUse 构建，通过 AstrBot OpenAPI 通信。
-        图标参考 AstrBot 官方 favicon 二次创作。字符消息经由 /api/v1/chat 流式返回。
+        基于 Tauri + Vue 3 + Vuetify 4 + Pinia + VueUse 构建。
+        会话列表经 AstrBot HTTP OpenAPI 获取，聊天消息通过 astrbot-plugin-plus 提供的
+        WebSocket 实时收发。图标参考 AstrBot 官方 favicon 二次创作。
       </v-card-text>
     </v-card>
   </div>

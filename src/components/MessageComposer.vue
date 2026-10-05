@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 const props = defineProps<{ busy?: boolean }>();
 const emit = defineEmits<{ (e: "send", text: string): void }>();
 
 const text = ref("");
 const el = ref<HTMLTextAreaElement | null>(null);
+const root = ref<HTMLElement | null>(null);
 
 function resize() {
   const t = el.value;
@@ -17,20 +18,52 @@ function resize() {
 watch(text, () => nextTick(resize));
 
 /**
- * Fallback for WebViews without the VisualViewport API.
+ * Keyboard-safe anchoring.
  *
- * The primary mobile keyboard fix is the fixed-position `.app-shell` bound to
- * `window.visualViewport` (see `useVisualViewport`): the whole layout — and
- * therefore this composer — is pinned to the visible area directly above the
- * on-screen keyboard. Only when that API is unavailable do we nudge the
- * (then-scrollable) composer back into view so it is not covered.
+ * The primary fix is global: the fixed `.app-shell` is bound to
+ * `window.visualViewport` (see `useVisualViewport`), so the whole layout — and
+ * therefore this composer — is always pinned to the visible area directly above
+ * the on-screen keyboard.
+ *
+ * As a second layer of defence (embedded/WebView contexts where the document
+ * itself still scrolls), we re-anchor the composer into view whenever the
+ * visual viewport changes or the field is focused, guaranteeing the input bar
+ * is never covered by the IME.
  */
-function keepVisible() {
-  if (window.visualViewport) return;
-  const scroll = () => el.value?.scrollIntoView({ block: "end" });
-  setTimeout(scroll, 50);
-  setTimeout(scroll, 300);
+let vv: VisualViewport | null = null;
+
+function anchor() {
+  const node = root.value;
+  if (!node) return;
+  const vvBottom = vv ? vv.height + vv.offsetTop : window.innerHeight;
+  const overflow = node.getBoundingClientRect().bottom - vvBottom;
+  if (overflow > 1) window.scrollBy(0, overflow);
 }
+
+function scheduleAnchor() {
+  requestAnimationFrame(anchor);
+  window.setTimeout(anchor, 60);
+  window.setTimeout(anchor, 300);
+}
+
+function onFocus() {
+  scheduleAnchor();
+}
+
+function onBlur() {
+  scheduleAnchor();
+}
+
+onMounted(() => {
+  vv = window.visualViewport ?? null;
+  vv?.addEventListener("resize", anchor);
+  vv?.addEventListener("scroll", anchor);
+});
+
+onBeforeUnmount(() => {
+  vv?.removeEventListener("resize", anchor);
+  vv?.removeEventListener("scroll", anchor);
+});
 
 function submit() {
   const value = text.value.trim();
@@ -49,8 +82,8 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <footer class="composer">
-    <div class="box">
+  <footer ref="root" class="composer">
+    <div class="composer-inner">
       <textarea
         ref="el"
         v-model="text"
@@ -58,7 +91,8 @@ function onKeydown(e: KeyboardEvent) {
         rows="1"
         enterkeyhint="send"
         placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-        @focus="keepVisible"
+        @focus="onFocus"
+        @blur="onBlur"
         @keydown="onKeydown"
       ></textarea>
       <v-btn
@@ -77,12 +111,15 @@ function onKeydown(e: KeyboardEvent) {
 <style scoped>
 .composer {
   flex: 0 0 auto;
-  /* extra bottom padding clears the home indicator / gesture bar */
-  padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  position: relative;
+  z-index: 5;
   background: rgb(var(--v-theme-surface));
   border-top: 1px solid rgba(128, 150, 170, 0.14);
+  /* Clear the home indicator / gesture bar; the shell already sits above the
+     keyboard, so only the safe-area inset is added here. */
+  padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px));
 }
-.box {
+.composer-inner {
   display: flex;
   align-items: flex-end;
   gap: 8px;
