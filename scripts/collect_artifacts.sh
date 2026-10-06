@@ -22,8 +22,14 @@ case "$PLATFORM" in
     ;;
   android)
     BASE="src-tauri/gen/android/app/build/outputs/apk"
-    A64=$(find_first "$BASE/arm64" "*-release.apk")
-    [ -n "$A64" ] && cp "$A64" "release/astrbot-plus-${VERSION}-android-arm64.apk"
+    # A `--split-per-abi` build names the dir after the ABI (`arm64`); a single
+    # `--target aarch64` build emits one universal APK under `universal`. Both
+    # contain only arm64-v8a here (the Android ABIs are restricted in
+    # android_prepare.py), so prefer the explicit arm64 dir and fall back to any
+    # release APK.
+    APK=$(find_first "$BASE/arm64" "*-release.apk")
+    [ -z "$APK" ] && APK=$(find "$BASE" -name "*-release.apk" 2>/dev/null | head -1)
+    [ -n "$APK" ] && cp "$APK" "release/astrbot-plus-${VERSION}-android-arm64.apk"
     ;;
   *)
     echo "unknown platform: $PLATFORM" >&2
