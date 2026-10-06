@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "@/stores/chat";
 import { useSettingsStore } from "@/stores/settings";
@@ -11,7 +11,7 @@ import MessageComposer from "./MessageComposer.vue";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
-const { activeContact, activeThread } = storeToRefs(chat);
+const { activeTarget, activeThread, activeKey } = storeToRefs(chat);
 const { isMobile } = usePlatform();
 
 const scrollEl = ref<HTMLElement | null>(null);
@@ -41,65 +41,76 @@ async function scrollToBottom(force = false) {
   el.scrollTop = el.scrollHeight;
 }
 
-const isGroup = computed(() => activeContact.value?.messageType === "GroupMessage");
+/** Floating "jump to bottom" button: shown only while reading history. */
+const showJumpButton = computed(() => !pinned.value);
 
-const platformLabel = computed(() => {
-  const p = activeContact.value?.platform || "";
-  const map: Record<string, string> = {
-    webchat: "WebChat",
-    aiocqhttp: "QQ",
-    qq_official: "QQ",
-    telegram: "Telegram",
-    discord: "Discord",
-    wechat: "微信",
-    weixin: "微信",
-    slack: "Slack",
-    lark: "飞书",
-  };
-  return map[p] || p;
+function jumpToBottom() {
+  pinned.value = true;
+  void scrollToBottom(true);
+}
+
+const isGroup = computed(() => activeTarget.value?.kind === "group");
+
+const subtitle = computed(() => {
+  const t = activeTarget.value;
+  if (!t) return "";
+  if (t.kind === "group") {
+    const names = (t.members || []).map((m) => m.name).join("、");
+    return `群聊 · ${t.members?.length ?? 0} 个 AI${names ? `（${names}）` : ""}`;
+  }
+  return "AI 好友 · 私聊";
 });
 
-// A new message appears (history load / send): always jump to the bottom.
+// A new message appears (send): always jump to the bottom.
 watch(() => activeThread.value.messages.length, () => scrollToBottom(true));
 // Streaming text grows token by token: keep the view pinned to the bottom.
 watch(
-  () => activeThread.value.messages.map((m) => m.text).join("\n"),
+  () => activeThread.value.messages.map((m) => m.text).join(""),
   () => scrollToBottom(),
 );
 // Opening a different conversation: reset the pin and land at the bottom.
-watch(
-  () => activeContact.value?.umo,
-  () => {
-    pinned.value = true;
-    scrollToBottom(true);
-  },
-);
+watch(activeKey, () => {
+  pinned.value = true;
+  scrollToBottom(true);
+});
 
 function closeChat() {
-  chat.activeUmo = "";
+  chat.activeKey = "";
 }
 
 async function onSend(text: string) {
-  const contact = activeContact.value;
-  if (!contact) return;
+  const target = activeTarget.value;
+  if (!target) return;
   await scrollToBottom(true);
-  await chat.sendMessage(text, contact);
+  await chat.sendMessage(text);
 
   // Raise a system notification for the reply if the app is in the background.
-  const last = activeThread.value.messages[activeThread.value.messages.length - 1];
+  const msgs = activeThread.value.messages;
+  const last = msgs[msgs.length - 1];
   if (settings.settings.notifyEnabled && last && last.role === "assistant" && !last.error) {
     notify({
-      title: contact.displayName,
-      body: last.text.slice(0, 120),
+      title: target.displayName,
+      body: (last.text || "").slice(0, 120),
       onlyWhenUnfocused: settings.settings.notifyOnlyBackground,
     });
   }
 }
+
+// Keep the view pinned when the (mobile) keyboard opens/closes.
+function onViewportResize() {
+  if (pinned.value) void scrollToBottom(true);
+}
+onMounted(() => {
+  window.visualViewport?.addEventListener("resize", onViewportResize);
+});
+onBeforeUnmount(() => {
+  window.visualViewport?.removeEventListener("resize", onViewportResize);
+});
 </script>
 
 <template>
   <section class="window">
-    <template v-if="activeContact">
+    <template v-if="activeTarget">
       <header class="head">
         <v-btn
           v-if="isMobile"
@@ -110,16 +121,14 @@ async function onSend(text: string) {
           @click="closeChat"
         />
         <AstrbotAvatar
-          :name="activeContact.displayName"
-          :seed="activeContact.avatarSeed"
+          :name="activeTarget.displayName"
+          :seed="activeTarget.avatarSeed"
           :group="isGroup"
           :size="42"
         />
         <div class="head-meta">
-          <div class="head-name">{{ activeContact.displayName }}</div>
-          <div class="head-sub">
-            {{ isGroup ? "群聊" : "单聊" }} · {{ platformLabel }}
-          </div>
+          <div class="head-name">{{ activeTarget.displayName }}</div>
+          <div class="head-sub">{{ subtitle }}</div>
         </div>
         <v-spacer />
         <v-btn
@@ -127,21 +136,39 @@ async function onSend(text: string) {
           variant="text"
           size="small"
           title="清空本地会话记录"
-          @click="chat.clearThread(activeContact.umo)"
+          @click="chat.clearThread(activeKey)"
         />
       </header>
 
-      <div ref="scrollEl" class="messages chat-scroll" @scroll.passive="onMessagesScroll">
-        <div v-if="!activeThread.messages.length" class="hint">
-          <v-icon icon="mdi-message-outline" size="34" class="mb-2" />
-          <p>还没有消息，发送一条开始对话吧。</p>
+      <div class="messages-wrap">
+        <div ref="scrollEl" class="messages chat-scroll" @scroll.passive="onMessagesScroll">
+          <div v-if="!activeThread.messages.length" class="hint">
+            <v-icon icon="mdi-message-outline" size="34" class="mb-2" />
+            <p>
+              {{ isGroup ? "发送一条消息，群里的每个 AI 都会回复。" : "还没有消息，发送一条开始对话吧。" }}
+            </p>
+          </div>
+          <MessageBubble
+            v-for="(m, i) in activeThread.messages"
+            :key="i"
+            :message="m"
+            :self="m.role === 'user'"
+            :show-sender="isGroup"
+          />
         </div>
-        <MessageBubble
-          v-for="(m, i) in activeThread.messages"
-          :key="i"
-          :message="m"
-          :self="m.role === 'user'"
-        />
+
+        <!-- Floating jump-to-bottom button: only while reading history. -->
+        <transition name="fade">
+          <button
+            v-if="showJumpButton"
+            class="jump-btn"
+            type="button"
+            title="回到底部"
+            @click="jumpToBottom"
+          >
+            <v-icon icon="mdi-arrow-down" size="22" />
+          </button>
+        </transition>
       </div>
 
       <MessageComposer :busy="activeThread.busy" @send="onSend" />
@@ -150,8 +177,8 @@ async function onSend(text: string) {
     <div v-else class="placeholder">
       <div class="placeholder-inner">
         <img src="/logo.svg" alt="AstrBot+" width="84" height="84" />
-        <h3 class="mt-3">选择一个会话开始聊天</h3>
-        <p class="text-medium-emphasis">支持纯文字单聊与群聊</p>
+        <h3 class="mt-3">选择一位 AI 好友或群聊开始聊天</h3>
+        <p class="text-medium-emphasis">支持与 AI 私聊，或把多个 AI 拉进同一个群聊</p>
       </div>
     </div>
   </section>
@@ -185,6 +212,18 @@ async function onSend(text: string) {
 .head-sub {
   font-size: 12px;
   opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 60vw;
+}
+/* Wrapper anchors the floating jump button to the message area. */
+.messages-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 .messages {
   flex: 1 1 auto;
@@ -203,7 +242,37 @@ async function onSend(text: string) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  opacity: 0.6;
+  opacity: 0.66;
+  text-align: center;
+}
+/* Floating "jump to bottom" button, sitting just above the composer. */
+.jump-btn {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid rgba(128, 150, 170, 0.24);
+  background: rgb(var(--v-theme-surface-bright, var(--v-theme-surface)));
+  color: rgb(var(--v-theme-on-surface));
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  z-index: 5;
+}
+.jump-btn:hover {
+  background: rgba(47, 134, 189, 0.18);
+}
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 .placeholder {
   flex: 1;
@@ -214,6 +283,5 @@ async function onSend(text: string) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
 }
 </style>

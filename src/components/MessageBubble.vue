@@ -2,13 +2,19 @@
 import { computed } from "vue";
 import type { ChatMessage } from "@/api/types";
 import { renderMarkdown } from "@/utils/markdown";
+import AstrbotAvatar from "./AstrbotAvatar.vue";
 
-const props = defineProps<{ message: ChatMessage; self?: boolean }>();
+const props = defineProps<{
+  message: ChatMessage;
+  self?: boolean;
+  /** Show the AI sender name/avatar (group chats). */
+  showSender?: boolean;
+}>();
 
 const isUser = computed(() => props.message.role === "user");
 const isError = computed(() => !!props.message.error);
 
-// Message bubbles render Markdown (headings, lists, code, links, ...).
+// Message bubbles render Markdown (headings, lists, code, math, ...).
 const html = computed(() => renderMarkdown(props.message.text || ""));
 
 function formatTime(iso: string): string {
@@ -24,15 +30,27 @@ function formatTime(iso: string): string {
 
 <template>
   <div class="bubble-row" :class="isUser ? 'out' : 'in'">
-    <div class="bubble" :class="[isUser ? 'out' : 'in', { error: isError }]">
-      <div v-if="message.text" class="text md" v-html="html"></div>
-      <div v-else-if="message.streaming" class="text">正在生成…</div>
-      <div class="foot">
-        <span v-if="message.tokens" class="tokens">
-          ↑{{ message.tokens.input ?? 0 }} ↓{{ message.tokens.output ?? 0 }}
-        </span>
-        <v-icon v-if="message.streaming" icon="mdi-dots-horizontal" size="16" class="typing" />
-        <span v-else class="time">{{ formatTime(message.created_at) }}</span>
+    <AstrbotAvatar
+      v-if="!isUser && showSender"
+      :name="message.senderName || 'AI'"
+      :seed="message.senderName || 'AI'"
+      :size="30"
+      class="sender-avatar"
+    />
+    <div class="bubble-wrap">
+      <div v-if="!isUser && showSender && message.senderName" class="sender-name">
+        {{ message.senderName }}
+      </div>
+      <div class="bubble" :class="[isUser ? 'out' : 'in', { error: isError }]">
+        <div v-if="message.text" class="text md" v-html="html"></div>
+        <div v-else-if="message.streaming" class="text">正在生成…</div>
+        <div class="foot">
+          <span v-if="message.tokens" class="tokens">
+            ↑{{ message.tokens.input ?? 0 }} ↓{{ message.tokens.output ?? 0 }}
+          </span>
+          <v-icon v-if="message.streaming" icon="mdi-dots-horizontal" size="16" class="typing" />
+          <span v-else class="time">{{ formatTime(message.created_at) }}</span>
+        </div>
       </div>
     </div>
   </div>
@@ -42,6 +60,8 @@ function formatTime(iso: string): string {
 .bubble-row {
   display: flex;
   margin: 2px 0;
+  align-items: flex-end;
+  gap: 8px;
 }
 .bubble-row.out {
   justify-content: flex-end;
@@ -49,8 +69,26 @@ function formatTime(iso: string): string {
 .bubble-row.in {
   justify-content: flex-start;
 }
-.bubble {
+.sender-avatar {
+  margin-bottom: 2px;
+}
+.bubble-wrap {
+  display: flex;
+  flex-direction: column;
   max-width: min(620px, 78%);
+  min-width: 0;
+}
+.bubble-row.out .bubble-wrap {
+  align-items: flex-end;
+}
+.sender-name {
+  font-size: 11.5px;
+  font-weight: 600;
+  opacity: 0.7;
+  margin: 0 4px 2px;
+}
+.bubble {
+  max-width: 100%;
   padding: 8px 12px 6px;
   border-radius: 14px;
   position: relative;
@@ -124,17 +162,17 @@ function formatTime(iso: string): string {
   border-radius: 4px;
   padding: 1px 4px;
 }
-.md :deep(.md-pre) {
+.md :deep(pre) {
   margin: 6px 0;
   padding: 10px 12px;
   border-radius: 10px;
   overflow-x: auto;
   background: rgba(0, 0, 0, 0.28);
 }
-.bubble.out .md :deep(.md-pre) {
+.bubble.out .md :deep(pre) {
   background: rgba(0, 0, 0, 0.22);
 }
-.md :deep(.md-pre code) {
+.md :deep(pre code) {
   background: transparent;
   padding: 0;
   font-size: 0.86em;
@@ -151,10 +189,28 @@ function formatTime(iso: string): string {
   border-top: 1px solid rgba(128, 150, 170, 0.35);
   margin: 10px 0;
 }
-.md :deep(.md-img) {
+.md :deep(img) {
   max-width: 100%;
   border-radius: 8px;
   display: block;
+}
+.md :deep(table) {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 0.9em;
+}
+.md :deep(th),
+.md :deep(td) {
+  border: 1px solid rgba(128, 150, 170, 0.4);
+  padding: 4px 8px;
+}
+.md :deep(.katex-display) {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+.md :deep(svg.abcjs-svg) {
+  max-width: 100%;
 }
 .foot {
   display: flex;

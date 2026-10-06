@@ -25,14 +25,18 @@ Telegram 重新设计，采用 Vuetify 4 组件库构建。当前版本聚焦于
 
 ### 已实现功能
 
-- 💬 **纯文字单聊**：与 AstrBot 的私聊会话进行文本对话，流式（SSE）展示回复
-- 👥 **纯文字群聊**：群会话列表与群聊文本收发
-- 🗂️ **会话列表**：从 AstrBot 拉取全部会话（conversations），支持按「全部 / 单聊 / 群聊」筛选与搜索
-- 📜 **历史记录**：进入会话时加载历史并解析（自动剥离系统注入的 `<system_reminder>`）
+- 💬 **AI 好友（私聊）**：每个 AI 好友映射一套对话配置 / 人格，拥有独立的会话上下文，流式（SSE）展示回复
+- 👥 **群聊**：把**多个 AI 好友拉进同一个群聊**；发送消息时文本同时发给每位成员，且**群内每位 AI 拥有独立会话上下文**（独立 UMO / session），互不串扰
+- 🗂️ **统一聊天列表**：AI 好友与群聊统一展示，支持按「全部 / AI 好友 / 群聊」筛选与搜索
+- 🧩 **配套插件**：[astrbot-plugin-plus](https://github.com/icenfn/astrbot-plugin-plus) 提供 AI 好友与群聊的注册表，联网时自动同步，离线可用本地数据
+- 📜 **历史记录**：显示历史消息（自动剥离系统注入的 `<system_reminder>`）
+- ⬇️ **自动滚动到底部**：跟随最新消息；上翻历史时显示悬浮「向下箭头」按钮，点击回到底部并自动隐藏
 - 🔔 **系统通知**：收到回复时调用系统通知，可设置为「仅后台通知」
 - 🪟 **后台运行**（桌面）：关闭窗口时最小化到系统托盘（不退出），托盘菜单可显示窗口 / 退出
 - 🚀 **开机自启**（桌面）：可选开机自动启动
 - 📱 **移动端布局**：窄屏（≤900px）自动切换为**底部 Tab 栏**（替代侧边栏）+ 单栏聊天、返回键处理、系统栏安全区适配
+- ⌨️ **键盘安全输入底栏**：输入底栏绑定可视视口（`visualViewport`），移动端输入法不再遮挡输入框
+- 🔤 **Markdown 气泡**：消息气泡使用 [marked](https://marked.js.org/) v18 渲染，支持 KaTeX 数学公式、ABC 乐谱与 highlight.js 代码高亮
 - 🌗 **主题**：深色 / 浅色 / 跟随系统
 - 🎨 **二创图标**：应用图标基于 AstrBot 官方 favicon 二次创作
 
@@ -72,10 +76,10 @@ AstrBot+ 仅使用 AstrBot 官方 HTTP API（`Authorization: Bearer abk_xxx`）�
 | 发送消息并流式获取回复 | `POST /api/v1/chat` |
 | 会话列表 | `GET /api/v1/conversations` |
 | 单个会话历史 | `GET /api/v1/conversations/{cid}?user_id=...` |
-| 会话（session）列表 | `GET /api/v1/sessions` |
-| 主动消息推送 | `POST /api/v1/im/messages` |
 | 机器人列表 | `GET /api/v1/im/bots` |
 | 提供商列表 | `GET /api/v1/providers` |
+| AI 好友注册表 | `GET/POST/DELETE /api/plugin/astrbot_plugin_plus/users` |
+| 群聊注册表 | `GET/POST/DELETE /api/plugin/astrbot_plugin_plus/groups` |
 
 > 需要先在 AstrBot 控制台「开发者 / API Key」创建一个包含 chat、im 等 scope 的
 > API Key，然后在客户端「设置」中填入服务器地址与 API Key。
@@ -140,7 +144,7 @@ astrbot-plus/
 │   ├── stores/                  # settings / chat（Pinia）
 │   ├── composables/             # useNotify / useWindow / usePlatform
 │   ├── components/              # 侧栏、底部 Tab、会话列表、聊天窗口、气泡、输入框…
-│   ├── views/                   # ChatView / ContactsView / SettingsView
+│   ├── views/                   # ChatView / SettingsView
 │   ├── plugins/vuetify.ts       # Vuetify 主题与图标
 │   └── styles/main.scss
 └── src-tauri/

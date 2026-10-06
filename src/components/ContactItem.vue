@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
-import type { Contact } from "@/api/types";
+import type { ChatTarget } from "@/api/types";
 import AstrbotAvatar from "./AstrbotAvatar.vue";
 
-const props = defineProps<{ contact: Contact; active?: boolean; unread?: number }>();
+const props = defineProps<{ target: ChatTarget; active?: boolean; unread?: number }>();
 const emit = defineEmits<{
-  (e: "select", c: Contact): void;
-  (e: "menu", c: Contact): void;
+  (e: "select", t: ChatTarget): void;
+  (e: "menu", t: ChatTarget): void;
 }>();
 
-const isGroup = computed(() => props.contact.messageType === "GroupMessage");
+const isGroup = computed(() => props.target.kind === "group");
 
 const unreadLabel = computed(() => {
   const n = props.unread ?? 0;
@@ -17,16 +17,20 @@ const unreadLabel = computed(() => {
   return n > 99 ? "99+" : String(n);
 });
 
-/** Subtitle shows the latest message content (Telegram-style), not the platform. */
+/** Subtitle shows the latest message content (Telegram-style). */
 const subtitle = computed(() => {
-  const last = (props.contact.lastMessage || "").replace(/\s+/g, " ").trim();
+  const last = (props.target.lastMessage || "").replace(/\s+/g, " ").trim();
   if (last) return last;
-  return isGroup.value ? "群聊" : "单聊";
+  if (isGroup.value) {
+    const n = props.target.members?.length ?? 0;
+    return `群聊 · ${n} 个 AI`;
+  }
+  return "AI 好友";
 });
 
 function relTime(ts: number): string {
   if (!ts) return "";
-  const d = new Date(ts * 1000);
+  const d = new Date(ts);
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
   const hh = String(d.getHours()).padStart(2, "0");
@@ -44,7 +48,7 @@ function startPress() {
   clearPress();
   timer = window.setTimeout(() => {
     longPressed = true;
-    emit("menu", props.contact);
+    emit("menu", props.target);
   }, 480);
 }
 function clearPress() {
@@ -60,12 +64,12 @@ function onSelect() {
     longPressed = false;
     return;
   }
-  emit("select", props.contact);
+  emit("select", props.target);
 }
 
 function onContext(e: MouseEvent) {
   e.preventDefault();
-  emit("menu", props.contact);
+  emit("menu", props.target);
 }
 
 onBeforeUnmount(clearPress);
@@ -85,11 +89,15 @@ onBeforeUnmount(clearPress);
     @mouseup="clearPress"
     @mouseleave="clearPress"
   >
-    <AstrbotAvatar :name="contact.displayName" :seed="contact.avatarSeed" :group="isGroup" />
+    <AstrbotAvatar
+      :name="target.displayName"
+      :seed="target.avatarSeed"
+      :group="isGroup"
+    />
     <div class="meta">
       <div class="row">
-        <span class="name">{{ contact.displayName }}</span>
-        <span class="time">{{ relTime(contact.updatedAt) }}</span>
+        <span class="name">{{ target.displayName }}</span>
+        <span class="time">{{ relTime(target.updatedAt) }}</span>
       </div>
       <div class="row">
         <span class="preview">{{ subtitle }}</span>

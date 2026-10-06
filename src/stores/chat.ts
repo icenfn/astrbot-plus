@@ -1,257 +1,466 @@
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
-import { parseHistory, toContact } from "@/api/client";
-import type { ChatMessage, Contact } from "@/api/types";
+import { computed, ref, watch } from "vue";
+import type { AiFriend, ChatMessage, ChatTarget, GroupChat } from "@/api/types";
 import { useSettingsStore } from "./settings";
 
+type ChatKind = "friend" | "group";
+
+/** Messages + per-participant session state for one chat surface. */
 interface Thread {
-  /** Running-last messages for this conversation, keyed by umo. */
   messages: ChatMessage[];
-  /** Server session id used to keep context across turns (from chat SSE). */
-  sessionId?: string;
-  /** Whether the thread is currently streaming a reply. */
   busy: boolean;
   loaded: boolean;
+  updatedAt: number;
+  lastMessage?: string;
+  /** participantId -> AstrBot session id (independent context per AI). */
+  sessions: Record<string, string>;
+  /** participantId -> AstrBot conversation id. */
+  conversations: Record<string, string>;
 }
 
 function emptyThread(): Thread {
-  return { messages: [], busy: false, loaded: false };
+  return { messages: [], busy: false, loaded: true, updatedAt: 0, sessions: {}, conversations: {} };
 }
 
-/** How often the conversation list is refreshed while the app is idle. */
-const POLL_INTERVAL = 15000;
+function uid(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function errMsg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+function loadJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function saveJson(key: string, value: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* ignore quota / privacy-mode errors */
+  }
+}
+
+/**
+ * WebChat UMO scheme used by AstrBot+.
+ *
+ *  - private (friend) chat : `webchat:FriendMessage:<friendId>`
+ *  - group chat member     : `webchat:GroupMessage:<groupId>:<friendId>`
+ *
+ * Every group member gets its own UMO (and its own session id), so the AI
+ * participants in a group never share a session context.
+ */
+export function friendUmo(friendId: string): string {
+  return `webchat:FriendMessage:${friendId}`;
+}
+
+export function groupMemberUmo(groupId: string, friendId: string): string {
+  return `webchat:GroupMessage:${groupId}:${friendId}`;
+}
+
+/** How often the friend/group registry is refreshed from the companion plugin. */
+const POLL_INTERVAL = 60000;
 
 export const useChatStore = defineStore("chat", () => {
   const settings = useSettingsStore();
 
-  const contacts = ref<Contact[]>([]);
-  const activeUmo = ref<string>("");
-  const threads = ref<Record<string, Thread>>({});
+  const friends = ref<AiFriend[]>(loadJson<AiFriend[]>("astrbot-plus.friends", []));
+  const groups = ref<GroupChat[]>(loadJson<GroupChat[]>("astrbot-plus.groups", []));
+  const threads = ref<Record<string, Thread>>(
+    loadJson<Record<string, Thread>>("astrbot-plus.threads", {}),
+  );
+  const unread = ref<Record<string, number>>(loadJson<Record<string, number>>("astrbot-plus.unread", {}));
+
+  watch(friends, (v) => saveJson("astrbot-plus.friends", v), { deep: true });
+  watch(groups, (v) => saveJson("astrbot-plus.groups", v), { deep: true });
+  watch(threads, (v) => saveJson("astrbot-plus.threads", v), { deep: true });
+  watch(unread, (v) => saveJson("astrbot-plus.unread", v), { deep: true });
+
+  const activeKey = ref("");
+  const filter = ref<"all" | "friend" | "group">("all");
+  const search = ref("");
   const loadingContacts = ref(false);
   const contactsError = ref("");
-  const filter = ref<"all" | "FriendMessage" | "GroupMessage">("all");
-  const search = ref("");
-
-  /** Unread count per umo (Telegram-style red badge). */
-  const unread = ref<Record<string, number>>({});
-  /** Last observed message count per umo, used to detect new messages. */
-  const seenCounts = ref<Record<string, number>>({});
-  const initialized = ref(false);
   let pollTimer: number | undefined;
 
-  const activeContact = computed(
-    () => contacts.value.find((c) => c.umo === activeUmo.value) || null,
-  );
+  function keyOf(kind: ChatKind, id: string): string {
+    return `${kind}:${id}`;
+  }
 
-  const activeThread = computed<Thread>(() => {
-    if (!activeUmo.value) return emptyThread();
-    if (!threads.value[activeUmo.value]) threads.value[activeUmo.value] = emptyThread();
-    return threads.value[activeUmo.value];
+  function ensureThread(key: string): Thread {
+    if (!threads.value[key]) threads.value[key] = emptyThread();
+    return threads.value[key];
+  }
+
+  /** Unified list of friend + group rows for the chat list. */
+  const contacts = computed<ChatTarget[]>(() => {
+    const list: ChatTarget[] = [];
+    for (const f of friends.value) {
+      const t = threads.value[keyOf("friend", f.id)];
+      list.push({
+        kind: "friend",
+        id: f.id,
+        displayName: f.name,
+        avatarSeed: f.avatarSeed || f.name,
+        updatedAt: t?.updatedAt ?? 0,
+        lastMessage: t?.lastMessage,
+        messageCount: t?.messages.length ?? 0,
+        friend: f,
+      });
+    }
+    for (const g of groups.value) {
+      const t = threads.value[keyOf("group", g.id)];
+      const members = g.memberIds
+        .map((id) => friends.value.find((f) => f.id === id))
+        .filter((x): x is AiFriend => !!x);
+      list.push({
+        kind: "group",
+        id: g.id,
+        displayName: g.name,
+        avatarSeed: g.avatarSeed || g.name,
+        updatedAt: t?.updatedAt ?? 0,
+        lastMessage: t?.lastMessage,
+        messageCount: t?.messages.length ?? 0,
+        group: g,
+        members,
+      });
+    }
+    return list;
   });
 
   const filteredContacts = computed(() => {
     const q = search.value.trim().toLowerCase();
     return contacts.value
-      .filter((c) => filter.value === "all" || c.messageType === filter.value)
+      .filter((c) => filter.value === "all" || c.kind === filter.value)
       .filter((c) => !q || c.displayName.toLowerCase().includes(q))
       .sort((a, b) => b.updatedAt - a.updatedAt);
   });
 
-  const friendCount = computed(
-    () => contacts.value.filter((c) => c.messageType === "FriendMessage").length,
-  );
-  const groupCount = computed(
-    () => contacts.value.filter((c) => c.messageType === "GroupMessage").length,
-  );
-  const totalUnread = computed(() =>
-    Object.values(unread.value).reduce((sum, n) => sum + n, 0),
+  const friendCount = computed(() => friends.value.length);
+  const groupCount = computed(() => groups.value.length);
+  const totalUnread = computed(() => Object.values(unread.value).reduce((s, n) => s + n, 0));
+
+  const activeTarget = computed<ChatTarget | null>(
+    () => contacts.value.find((c) => keyOf(c.kind, c.id) === activeKey.value) || null,
   );
 
-  function unreadOf(umo: string): number {
-    return unread.value[umo] ?? 0;
+  const activeThread = computed<Thread>(() => {
+    if (!activeKey.value) return emptyThread();
+    return ensureThread(activeKey.value);
+  });
+
+  function unreadOf(key: string): number {
+    return unread.value[key] ?? 0;
   }
 
-  /**
-   * Load the conversation list.
-   * When `detectNew` is true (polling / later refreshes) any increase in a
-   * conversation's message count is recorded as unread — except for the
-   * conversation currently open.
-   */
-  async function loadContacts(opts: { detectNew?: boolean } = {}) {
+  function markRead(key: string): void {
+    if (unread.value[key]) unread.value[key] = 0;
+  }
+
+  function markUnread(key: string): void {
+    unread.value[key] = Math.max(1, unread.value[key] ?? 0);
+  }
+
+  function openTarget(t: ChatTarget): void {
+    activeKey.value = keyOf(t.kind, t.id);
+    markRead(activeKey.value);
+  }
+
+  // --- AI friends -----------------------------------------------------------
+
+  async function addFriend(payload: {
+    name: string;
+    configId?: string;
+    personaId?: string;
+  }): Promise<AiFriend> {
+    const friend: AiFriend = {
+      id: uid("f"),
+      name: payload.name.trim() || "AI 好友",
+      configId: payload.configId?.trim() || undefined,
+      personaId: payload.personaId?.trim() || undefined,
+      avatarSeed: payload.name.trim() || "AI",
+      createdAt: Date.now(),
+    };
+    friends.value.push(friend);
+    // Best-effort: mirror the friend to the companion plugin when reachable.
+    try {
+      const client = settings.buildClient();
+      await client.plusCreateUser({
+        id: friend.id,
+        name: friend.name,
+        configId: friend.configId,
+        personaId: friend.personaId,
+      });
+    } catch {
+      /* offline / plugin missing – local copy is authoritative */
+    }
+    return friend;
+  }
+
+  async function removeFriend(id: string): Promise<void> {
+    friends.value = friends.value.filter((f) => f.id !== id);
+    // Drop the friend from any group it belonged to.
+    for (const g of groups.value) g.memberIds = g.memberIds.filter((m) => m !== id);
+    delete threads.value[keyOf("friend", id)];
+    delete unread.value[keyOf("friend", id)];
+    if (activeKey.value === keyOf("friend", id)) activeKey.value = "";
+    try {
+      await settings.buildClient().plusDeleteUser(id);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  // --- Group chats ----------------------------------------------------------
+
+  async function createGroup(payload: { name: string; memberIds: string[] }): Promise<GroupChat | null> {
+    const memberIds = payload.memberIds.filter((id) => friends.value.some((f) => f.id === id));
+    if (memberIds.length < 2) return null;
+    const group: GroupChat = {
+      id: uid("g"),
+      name: payload.name.trim() || "群聊",
+      memberIds,
+      avatarSeed: payload.name.trim() || "群聊",
+      createdAt: Date.now(),
+    };
+    groups.value.push(group);
+    try {
+      await settings.buildClient().plusCreateGroup({ id: group.id, name: group.name, memberIds });
+    } catch {
+      /* best-effort */
+    }
+    return group;
+  }
+
+  async function removeGroup(id: string): Promise<void> {
+    groups.value = groups.value.filter((g) => g.id !== id);
+    delete threads.value[keyOf("group", id)];
+    delete unread.value[keyOf("group", id)];
+    if (activeKey.value === keyOf("group", id)) activeKey.value = "";
+    try {
+      await settings.buildClient().plusDeleteGroup(id);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  function memberName(groupId: string, memberId: string): string {
+    const g = groups.value.find((x) => x.id === groupId);
+    if (!g) return memberId;
+    return friends.value.find((f) => f.id === memberId)?.name || memberId;
+  }
+
+  // --- Registry sync (companion plugin) ------------------------------------
+
+  async function loadContacts(_opts: { detectNew?: boolean } = {}): Promise<void> {
     if (!settings.hasCredentials) return;
     loadingContacts.value = true;
     contactsError.value = "";
     try {
       const client = settings.buildClient();
-      const rows = await client.listConversations({
-        page: 1,
-        pageSize: 200,
-        includeHistory: true,
-      });
-      const next = rows.map(toContact);
-      const detect = opts.detectNew ?? initialized.value;
-      for (const c of next) {
-        const count = c.messageCount ?? 0;
-        const prev = seenCounts.value[c.umo];
-        if (detect && prev !== undefined && count > prev && c.umo !== activeUmo.value) {
-          unread.value[c.umo] = (unread.value[c.umo] ?? 0) + (count - prev);
-        }
-        seenCounts.value[c.umo] = count;
+      const [users, grps] = await Promise.all([
+        client.plusListUsers().catch(() => null),
+        client.plusListGroups().catch(() => null),
+      ]);
+      if (Array.isArray(users) && users.length) {
+        friends.value = users.map((u) => ({
+          id: u.id || uid("f"),
+          name: u.name || "AI 好友",
+          configId: u.configId,
+          personaId: u.personaId,
+          avatarSeed: u.avatarSeed || u.name || "AI",
+          createdAt: u.createdAt || Date.now(),
+        }));
       }
-      contacts.value = next;
-      initialized.value = true;
+      if (Array.isArray(grps) && grps.length) {
+        groups.value = grps.map((g) => ({
+          id: g.id || uid("g"),
+          name: g.name || "群聊",
+          memberIds: Array.isArray(g.memberIds) ? g.memberIds : [],
+          avatarSeed: g.avatarSeed || g.name || "群聊",
+          createdAt: g.createdAt || Date.now(),
+        }));
+      }
     } catch (e) {
-      contactsError.value = e instanceof Error ? e.message : String(e);
+      contactsError.value = errMsg(e);
     } finally {
       loadingContacts.value = false;
     }
   }
 
-  function startPolling(interval = POLL_INTERVAL) {
+  function startPolling(interval = POLL_INTERVAL): void {
     stopPolling();
     pollTimer = window.setInterval(() => {
-      void loadContacts({ detectNew: true });
+      void loadContacts();
     }, interval);
   }
 
-  function stopPolling() {
+  function stopPolling(): void {
     if (pollTimer !== undefined) {
       window.clearInterval(pollTimer);
       pollTimer = undefined;
     }
   }
 
-  async function ensureThreadLoaded(contact: Contact) {
-    const t = threads.value[contact.umo];
-    if (t?.loaded) return;
-    // Mark as loaded up-front so a slow/failed fetch is not retried in a loop.
-    threads.value[contact.umo] = { messages: [], busy: false, loaded: true };
-    try {
-      const client = settings.buildClient();
-      // The conversation detail endpoint needs the row's own user_id (the umo),
-      // not the display / sender name.
-      const conv = await client.getConversation(contact.cid, contact.userId || contact.umo);
-      threads.value[contact.umo].messages = parseHistory(conv);
-    } catch {
-      // History may be unavailable; keep the empty thread.
-    }
+  function clearThread(key: string): void {
+    threads.value[key] = emptyThread();
   }
 
-  async function openContact(contact: Contact) {
-    activeUmo.value = contact.umo;
-    markRead(contact.umo);
-    await ensureThreadLoaded(contact);
-  }
-
-  function markRead(umo: string) {
-    if (unread.value[umo]) unread.value[umo] = 0;
-  }
-
-  /** Manually flag a conversation as unread (Telegram-style). */
-  function markUnread(umo: string) {
-    unread.value[umo] = Math.max(1, unread.value[umo] ?? 0);
-  }
-
-  /** Delete a conversation on the server and locally. */
-  async function deleteContact(contact: Contact) {
-    const client = settings.buildClient();
-    await client.deleteConversation(contact.cid, contact.userId || contact.umo);
-    contacts.value = contacts.value.filter((c) => c.umo !== contact.umo);
-    delete threads.value[contact.umo];
-    delete unread.value[contact.umo];
-    delete seenCounts.value[contact.umo];
-    if (activeUmo.value === contact.umo) activeUmo.value = "";
-  }
+  // --- Messaging ------------------------------------------------------------
 
   /**
-   * Send a plain-text message in the active conversation and stream the reply.
-   * A new conversation (no cid yet) is created server-side via username.
+   * Send a message in the active chat. In a group the text fans out to every
+   * member concurrently, and each member keeps its OWN session/conversation so
+   * the AIs never share a context.
    */
-  async function sendMessage(text: string, contact: Contact): Promise<void> {
+  async function sendMessage(text: string): Promise<void> {
+    const target = activeTarget.value;
     const body = text.trim();
-    if (!body || !contact) return;
-    const thread =
-      threads.value[contact.umo] || (threads.value[contact.umo] = emptyThread());
-    thread.loaded = true;
-
+    if (!target || !body) return;
+    const key = keyOf(target.kind, target.id);
+    const thread = ensureThread(key);
     const now = new Date().toISOString();
     thread.messages.push({ role: "user", text: body, created_at: now });
-    const assistant: ChatMessage = {
-      role: "assistant",
-      text: "",
-      created_at: now,
-      streaming: true,
-    };
-    thread.messages.push(assistant);
+    thread.updatedAt = Date.now();
+    thread.lastMessage = body;
+
+    const client = settings.buildClient();
+
+    if (target.kind === "friend") {
+      const friend = target.friend!;
+      const assistant: ChatMessage = {
+        role: "assistant",
+        text: "",
+        created_at: new Date().toISOString(),
+        streaming: true,
+        senderId: friend.id,
+        senderName: friend.name,
+      };
+      thread.messages.push(assistant);
+      thread.busy = true;
+      try {
+        await client.chatStream(
+          {
+            username: friendUmo(friend.id),
+            message: body,
+            sessionId: thread.sessions[friend.id],
+            conversationId: thread.conversations[friend.id],
+            platformId: "webchat",
+          },
+          {
+            onSessionId: (sid) => {
+              thread.sessions[friend.id] = sid;
+            },
+            onDelta: (_d, full) => {
+              assistant.text = full;
+            },
+            onTokens: (tk) => {
+              assistant.tokens = tk;
+            },
+          },
+        );
+        if (!assistant.text) assistant.text = "(空回复)";
+      } catch (e) {
+        assistant.error = true;
+        assistant.text = `发送失败：${errMsg(e)}`;
+      } finally {
+        assistant.streaming = false;
+        thread.busy = false;
+        thread.updatedAt = Date.now();
+      }
+      return;
+    }
+
+    // Group chat: independent context per member.
+    const group = target.group!;
+    const members = group.memberIds
+      .map((id) => friends.value.find((f) => f.id === id))
+      .filter((x): x is AiFriend => !!x);
     thread.busy = true;
 
-    try {
-      const client = settings.buildClient();
-      await client.chatStream(
-        {
-          username: contact.username || "astrbot_plus",
-          message: body,
-          sessionId: thread.sessionId,
-          conversationId: contact.cid || undefined,
-        },
-        {
-          onSessionId: (sid) => {
-            thread.sessionId = sid;
+    const jobs = members.map(async (friend) => {
+      const assistant: ChatMessage = {
+        role: "assistant",
+        text: "",
+        created_at: new Date().toISOString(),
+        streaming: true,
+        senderId: friend.id,
+        senderName: friend.name,
+      };
+      thread.messages.push(assistant);
+      try {
+        await client.chatStream(
+          {
+            username: groupMemberUmo(group.id, friend.id),
+            message: body,
+            sessionId: thread.sessions[friend.id],
+            conversationId: thread.conversations[friend.id],
+            platformId: "webchat",
           },
-          onDelta: (_d, full) => {
-            assistant.text = full;
+          {
+            onSessionId: (sid) => {
+              thread.sessions[friend.id] = sid;
+            },
+            onDelta: (_d, full) => {
+              assistant.text = full;
+            },
+            onTokens: (tk) => {
+              assistant.tokens = tk;
+            },
           },
-          onTokens: (tk) => {
-            assistant.tokens = tk;
-          },
-        },
-      );
-      if (!assistant.text) assistant.text = "(空回复)";
-    } catch (e) {
-      assistant.error = true;
-      assistant.text = `发送失败：${e instanceof Error ? e.message : String(e)}`;
-    } finally {
-      assistant.streaming = false;
-      thread.busy = false;
-      const record = contacts.value.find((c) => c.umo === contact.umo);
-      if (record) {
-        record.updatedAt = Date.now() / 1000;
-        record.lastMessage = assistant.text;
-        record.messageCount = (record.messageCount ?? 0) + 2;
-        // Keep the baseline in sync so polling does not double-count our own turn.
-        seenCounts.value[contact.umo] = record.messageCount;
+        );
+        if (!assistant.text) assistant.text = "(空回复)";
+      } catch (e) {
+        assistant.error = true;
+        assistant.text = `发送失败：${errMsg(e)}`;
+      } finally {
+        assistant.streaming = false;
       }
-    }
-  }
+    });
 
-  function clearThread(umo: string) {
-    threads.value[umo] = emptyThread();
+    await Promise.all(jobs);
+    thread.busy = false;
+    thread.updatedAt = Date.now();
+    thread.lastMessage = body;
   }
 
   return {
+    friends,
+    groups,
     contacts,
-    activeUmo,
-    threads,
-    activeContact,
-    activeThread,
     filteredContacts,
-    loadingContacts,
-    contactsError,
+    activeKey,
+    activeTarget,
+    activeThread,
     filter,
     search,
     unread,
     totalUnread,
     friendCount,
     groupCount,
+    loadingContacts,
+    contactsError,
     loadContacts,
     startPolling,
     stopPolling,
-    openContact,
+    openTarget,
     markRead,
     markUnread,
-    deleteContact,
-    sendMessage,
-    clearThread,
     unreadOf,
+    addFriend,
+    removeFriend,
+    createGroup,
+    removeGroup,
+    memberName,
+    clearThread,
+    sendMessage,
+    friendUmo,
+    groupMemberUmo,
   };
 });

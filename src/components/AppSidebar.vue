@@ -10,13 +10,6 @@ const { isDark, connected } = storeToRefs(settings);
 
 const items = [
   { icon: "mdi-forum-outline", active: "mdi-forum", to: "/", label: "聊天", name: "chats" },
-  {
-    icon: "mdi-account-multiple-outline",
-    active: "mdi-account-multiple",
-    to: "/contacts",
-    label: "会话",
-    name: "contacts",
-  },
 ];
 
 const current = computed(() => route.name);

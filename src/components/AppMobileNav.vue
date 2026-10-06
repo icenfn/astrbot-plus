@@ -13,13 +13,6 @@ const { totalUnread } = storeToRefs(chat);
 
 const tabs = [
   { to: "/", name: "chats", label: "聊天", icon: "mdi-forum-outline", active: "mdi-forum" },
-  {
-    to: "/contacts",
-    name: "contacts",
-    label: "会话",
-    icon: "mdi-account-multiple-outline",
-    active: "mdi-account-multiple",
-  },
   { to: "/settings", name: "settings", label: "设置", icon: "mdi-cog-outline", active: "mdi-cog" },
 ];
 

@@ -30,22 +30,22 @@ watch(
 );
 
 // Android hardware back button: the native MainActivity dispatches an
-// `android:back` event. When a conversation is open, close it; otherwise
-// fall back to the chats tab.
+// `android:back` event. When a chat is open, close it; otherwise fall back to
+// the chats tab.
 function onAndroidBack() {
-  if (chat.activeUmo) {
-    chat.activeUmo = "";
+  if (chat.activeKey) {
+    chat.activeKey = "";
     return;
   }
   if (router.currentRoute.value.name !== "chats") router.push("/");
 }
 
-// Refresh the list (and poll for new messages) whenever a conversation closes
-// so the unread badges stay accurate.
+// Refresh the list (and poll for new messages) whenever a chat closes so the
+// unread badges stay accurate.
 watch(
-  () => chat.activeUmo,
-  (umo) => {
-    if (!umo) void chat.loadContacts({ detectNew: true });
+  () => chat.activeKey,
+  (key) => {
+    if (!key) void chat.loadContacts();
   },
 );
 
@@ -75,9 +75,9 @@ onBeforeUnmount(() => {
       <div class="app-view">
         <router-view />
       </div>
-      <!-- The bottom tab bar is hidden while a conversation is open: the message
-           view is a full-screen page on mobile. -->
-      <AppMobileNav v-if="isMobile && !chat.activeUmo" />
+      <!-- The bottom tab bar is hidden while a chat is open: the message view
+           is a full-screen page on mobile. -->
+      <AppMobileNav v-if="isMobile && !chat.activeKey" />
     </div>
   </v-app>
 </template>

@@ -14,6 +14,12 @@ import { onMounted, onUnmounted } from "vue";
  *
  * A `keyboard-open` class is also toggled on <html> so the layout can react
  * (e.g. hide floating chrome) while the keyboard is visible.
+ *
+ * IMPORTANT: we also lock `document.body` scrolling. When the keyboard opens,
+ * some WebViews try to scroll the whole document to reveal the focused field,
+ * which drags the fixed shell up and permanently offsets the composer — the
+ * root cause behind the "input bar hidden behind the IME" bug. Locking the body
+ * to the visual viewport keeps the shell glued in place.
  */
 export function useVisualViewport() {
   let vv: VisualViewport | null = null;
@@ -37,6 +43,11 @@ export function useVisualViewport() {
     }
   }
 
+  // Freeze any stray document scroll (the shell is position: fixed).
+  function lockScroll() {
+    if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
+  }
+
   onMounted(() => {
     vv = window.visualViewport ?? null;
     apply();
@@ -47,6 +58,8 @@ export function useVisualViewport() {
       window.addEventListener("resize", apply);
     }
     window.addEventListener("orientationchange", apply);
+    window.addEventListener("scroll", lockScroll, { passive: true });
+    document.addEventListener("focusin", lockScroll);
   });
 
   onUnmounted(() => {
@@ -57,5 +70,7 @@ export function useVisualViewport() {
       window.removeEventListener("resize", apply);
     }
     window.removeEventListener("orientationchange", apply);
+    window.removeEventListener("scroll", lockScroll);
+    document.removeEventListener("focusin", lockScroll);
   });
 }

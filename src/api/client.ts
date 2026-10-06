@@ -3,10 +3,12 @@ import VueHook from "alova/vue";
 import adapterFetch from "alova/fetch";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type {
+  AiFriend,
   ApiEnvelope,
   ChatMessage,
   Contact,
   Conversation,
+  GroupChat,
   HistoryEntry,
   MessagePart,
   ProviderInfo,
@@ -41,6 +43,9 @@ export class AstrbotError extends Error {
     this.status = status;
   }
 }
+
+/** Name of the companion AstrBot plugin that mirrors friends / groups. */
+export const PLUS_PLUGIN_NAME = "astrbot_plugin_plus";
 
 function safeJson(text: string): unknown {
   try {
@@ -128,13 +133,15 @@ function createStreamInstance(baseURL: string, headers: Record<string, string>) 
 
 /**
  * Thin client over the AstrBot HTTP API (built on alova).
- * All endpoints live under `{baseUrl}/api/v1`.
+ * Core endpoints live under `{baseUrl}/api/v1`; the companion plugin's Web API
+ * lives under `{baseUrl}/api/plugin/{PLUGIN_NAME}`.
  */
 export class AstrbotClient {
   private baseUrl: string;
   private apiKey: string;
   private alova: ReturnType<typeof createInstance>;
   private streamAlova: ReturnType<typeof createStreamInstance>;
+  private pluginAlova: ReturnType<typeof createInstance> | null = null;
 
   constructor(config: AstrbotConfig) {
     this.baseUrl = (config.baseUrl || "").replace(/\/+$/, "");
@@ -148,6 +155,7 @@ export class AstrbotClient {
     };
     this.alova = createInstance(v1, headers);
     this.streamAlova = createStreamInstance(v1, headers);
+    this.pluginAlova = createInstance(`${base}/plugin/${PLUS_PLUGIN_NAME}`, headers);
   }
 
   /** Verify credentials and return the configured IM bot ids. */
@@ -212,9 +220,68 @@ export class AstrbotClient {
     // (missing required query field `user_id`). Encoding it into the URL fixes
     // the deletion.
     const query = new URLSearchParams({ user_id: userId }).toString();
-    await this.alova
-      .Delete(`/conversations/${encodeURIComponent(cid)}?${query}`)
-      .send();
+    await this.alova.Delete(`/conversations/${encodeURIComponent(cid)}?${query}`).send();
+  }
+
+  // --- Companion plugin: AI users & groups ---------------------------------
+
+  /** Unwrap the plugin's `{status, message, data}` envelope. */
+  private unwrapPlugin<T>(env: unknown): T {
+    if (env && typeof env === "object" && "data" in (env as Record<string, unknown>)) {
+      return (env as ApiEnvelope<T>).data;
+    }
+    return env as T;
+  }
+
+  async plusListUsers(): Promise<AiFriend[]> {
+    if (!this.pluginAlova) return [];
+    const env = await this.pluginAlova.Get("/users").send();
+    const data = this.unwrapPlugin<{ users?: AiFriend[] } | AiFriend[]>(env);
+    if (Array.isArray(data)) return data;
+    return data?.users ?? [];
+  }
+
+  async plusCreateUser(payload: {
+    id?: string;
+    name: string;
+    configId?: string;
+    personaId?: string;
+  }): Promise<AiFriend | null> {
+    if (!this.pluginAlova) return null;
+    const env = await this.pluginAlova.Post("/users", payload).send();
+    return this.unwrapPlugin<AiFriend | null>(env);
+  }
+
+  async plusDeleteUser(id: string): Promise<void> {
+    if (!this.pluginAlova) return;
+    // `id` is passed as a query parameter (see deleteConversation for why
+    // alova's Delete second argument is the body, not config).
+    const query = new URLSearchParams({ id }).toString();
+    await this.pluginAlova.Delete(`/users?${query}`).send();
+  }
+
+  async plusListGroups(): Promise<GroupChat[]> {
+    if (!this.pluginAlova) return [];
+    const env = await this.pluginAlova.Get("/groups").send();
+    const data = this.unwrapPlugin<{ groups?: GroupChat[] } | GroupChat[]>(env);
+    if (Array.isArray(data)) return data;
+    return data?.groups ?? [];
+  }
+
+  async plusCreateGroup(payload: {
+    id?: string;
+    name: string;
+    memberIds: string[];
+  }): Promise<GroupChat | null> {
+    if (!this.pluginAlova) return null;
+    const env = await this.pluginAlova.Post("/groups", payload).send();
+    return this.unwrapPlugin<GroupChat | null>(env);
+  }
+
+  async plusDeleteGroup(id: string): Promise<void> {
+    if (!this.pluginAlova) return;
+    const query = new URLSearchParams({ id }).toString();
+    await this.pluginAlova.Delete(`/groups?${query}`).send();
   }
 
   /**
@@ -227,6 +294,7 @@ export class AstrbotClient {
       message: string;
       sessionId?: string;
       conversationId?: string;
+      platformId?: string;
     },
     handlers: {
       onDelta?: (delta: string, full: string) => void;
@@ -243,6 +311,7 @@ export class AstrbotClient {
     };
     if (params.sessionId) body.session_id = params.sessionId;
     if (params.conversationId) body.conversation_id = params.conversationId;
+    if (params.platformId) body.platform_id = params.platformId;
 
     const res = (await this.streamAlova.Post("/chat", body).send()) as unknown as Response;
     if (!res.body) throw new AstrbotError("Empty response body", res.status);

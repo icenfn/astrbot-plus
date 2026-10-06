@@ -1,5 +1,5 @@
 /**
- * AstrBot OpenAPI type definitions (subset used by AstrBot+).
+ * AstrBot OpenAPI + AstrBot+ type definitions.
  * Reference: https://docs.astrbot.app/dev/openapi.html
  */
 
@@ -66,13 +66,14 @@ export interface ChatMessage {
   error?: boolean;
   /** Token usage reported for the assistant turn, when available. */
   tokens?: { input?: number; output?: number };
+  /** For group chats: which AI participant produced / receives this turn. */
+  senderId?: string;
+  senderName?: string;
 }
 
-/** Normalized contact = one conversation row used across the UI. */
+/** A server conversation row (kept for the OpenAPI client helpers). */
 export interface Contact {
-  /** Stable key: the umo. */
   umo: string;
-  /** Server-side user id used by the conversation detail endpoint (usually == umo). */
   userId: string;
   cid: string;
   displayName: string;
@@ -81,10 +82,54 @@ export interface Contact {
   username: string;
   avatarSeed: string;
   updatedAt: number;
-  /** Latest message text, used as the chat-list subtitle. */
   lastMessage?: string;
-  /** Number of real messages in the conversation (drives unread counting). */
   messageCount?: number;
+}
+
+/**
+ * The two chat surfaces of AstrBot+:
+ *  - `friend`: a 1:1 private chat with a single AI friend.
+ *  - `group`:  a group chat hosting several AI friends at once.
+ */
+export type ChatKind = "friend" | "group";
+
+/**
+ * A user-defined AI friend. Each friend maps to one AstrBot chat
+ * configuration (provider / persona) and owns an independent chat context.
+ */
+export interface AiFriend {
+  id: string;
+  name: string;
+  /** Optional AstrBot chat config (provider) id used for this friend. */
+  configId?: string;
+  /** Optional AstrBot persona id. */
+  personaId?: string;
+  avatarSeed: string;
+  createdAt: number;
+}
+
+/** A group chat hosting two or more AI friends. */
+export interface GroupChat {
+  id: string;
+  name: string;
+  /** Member AI friend ids. Each member keeps its own session context. */
+  memberIds: string[];
+  avatarSeed: string;
+  createdAt: number;
+}
+
+/** A unified row shown in the chat list (friend or group). */
+export interface ChatTarget {
+  kind: ChatKind;
+  id: string;
+  displayName: string;
+  avatarSeed: string;
+  updatedAt: number;
+  lastMessage?: string;
+  messageCount: number;
+  friend?: AiFriend;
+  group?: GroupChat;
+  members?: AiFriend[];
 }
 
 export interface ProviderInfo {

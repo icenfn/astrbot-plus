@@ -2,6 +2,25 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## v0.2.0
+
+### 新增
+
+- 💬 **聊天形式重构为「AI 好友」与「群聊」两类**：聊天列表统一展示 AI 好友与群聊，支持按「全部 / AI 好友 / 群聊」筛选，并可直接新建 AI 好友与群聊。
+- 👥 **多 AI 好友拉群聊**：可把多个 AI 好友拉进同一个群聊；发送消息时文本会同时发给每位成员。**群内每位 AI 拥有独立会话上下文**（独立 UMO 与 session），互不串扰。
+- 🏷️ **UMO 规范**：私聊使用 `webchat:FriendMessage:<friendId>`，群聊成员使用 `webchat:GroupMessage:<groupId>:<friendId>`，据此为每个 AI 维护独立的 `session_id` / `conversation_id`。
+- 🧩 **配套插件 [astrbot-plugin-plus](https://github.com/icenfn/astrbot-plugin-plus)**：AI 好友与群聊注册表通过插件 Web API 读写，客户端本地持久化并可离线使用，联网时自动同步。
+
+### 变更
+
+- 🗑️ **删除「会话」页面**：移除独立的会话（conversation）列表页，改由 AI 好友 / 群聊注册表统一承载。
+- 🔤 **消息气泡 Markdown 改用 [marked](https://marked.js.org/)（v18.1.0）渲染**，并集成 `marked-katex-extension`（LaTeX 数学）、`marked-abc`（ABC 乐谱）、`marked-highlight`（highlight.js 代码高亮）三款官方插件，替代原内置轻量渲染器。
+
+### 修复
+
+- ⬇️ **完善消息自动滚动到底部**：用户上翻查看历史时不再被新消息打断；此时在消息区右下角**仅显示「向下箭头」悬浮按钮**，点击后平滑滚动回底部并**自动隐藏按钮**。
+- ⌨️ **重构消息输入底栏，彻底解决移动端输入法遮挡输入框**：外壳固定定位并绑定 `window.visualViewport`（高度 + 垂直偏移），输入框聚焦期间持续重排、锁定文档滚动（`focusin` 回正），输入框 16px 防自动缩放并适配安全区，根治键盘弹起时的遮挡与错位。
+
 ## v0.1.4
 
 ### 新增

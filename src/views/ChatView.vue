@@ -11,13 +11,13 @@ import ConnectionDialog from "@/components/ConnectionDialog.vue";
 const settings = useSettingsStore();
 const chat = useChatStore();
 const { connected } = storeToRefs(settings);
-const { activeUmo } = storeToRefs(chat);
+const { activeKey } = storeToRefs(chat);
 const { isMobile } = usePlatform();
 
 const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
 
 // Mobile shows a single pane: the list, or the open conversation.
-const showListOnMobile = computed(() => !activeUmo.value);
+const showListOnMobile = computed(() => !activeKey.value);
 
 onMounted(async () => {
   if (settings.hasCredentials && !connected.value) {
@@ -48,7 +48,7 @@ onMounted(async () => {
         <img src="/logo.svg" alt="AstrBot+" width="96" height="96" />
         <h1 class="text-h5 mt-4">欢迎使用 AstrBot+</h1>
         <p class="text-medium-emphasis mt-2 text-center">
-          连接到你的 AstrBot 服务器，开始纯文字单聊与群聊。
+          连接到你的 AstrBot 服务器，与 AI 好友私聊，或把多个 AI 拉进一个群聊。
         </p>
         <ConnectionDialog class="mt-4" />
       </div>
