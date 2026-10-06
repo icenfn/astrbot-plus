@@ -7,18 +7,29 @@ PLATFORM="${1:?platform}"
 VERSION="${2:?version}"
 mkdir -p release
 
-find_first() { find "$1" -name "$2" 2>/dev/null | head -1; }
+# Return the first file matching a glob under a directory.
+#
+# Tolerates a MISSING directory and `head` closing the pipe early (SIGPIPE).
+# Both would otherwise make `find` exit non-zero; combined with `set -o pipefail`
+# and `set -e`, that aborts the whole script *silently* via the `VAR=$(...)`
+# assignment. This was the actual reason the Android collection failed: the APK
+# is emitted under apk/universal/ (single-target build), so the apk/arm64/ probe
+# hit a missing directory and killed the script before it could log anything.
+find_first() {
+  [ -d "$1" ] || return 0
+  find "$1" -name "$2" 2>/dev/null | head -1 || true
+}
 
 case "$PLATFORM" in
   linux)
     DEB=$(find_first "src-tauri/target/release/bundle/deb" "*.deb")
     RPM=$(find_first "src-tauri/target/release/bundle/rpm" "*.rpm")
-    [ -n "$DEB" ] && cp "$DEB" "release/astrbot-plus-${VERSION}-linux-arm64.deb"
-    [ -n "$RPM" ] && cp "$RPM" "release/astrbot-plus-${VERSION}-linux-aarch64.rpm"
+    if [ -n "$DEB" ]; then cp "$DEB" "release/astrbot-plus-${VERSION}-linux-arm64.deb"; fi
+    if [ -n "$RPM" ]; then cp "$RPM" "release/astrbot-plus-${VERSION}-linux-aarch64.rpm"; fi
     ;;
   windows)
     EXE=$(find_first "src-tauri/target/release/bundle/nsis" "*.exe")
-    [ -n "$EXE" ] && cp "$EXE" "release/astrbot-plus-${VERSION}-windows-x64-setup.exe"
+    if [ -n "$EXE" ]; then cp "$EXE" "release/astrbot-plus-${VERSION}-windows-x64-setup.exe"; fi
     ;;
   android)
     BASE="src-tauri/gen/android/app/build/outputs/apk"
@@ -28,8 +39,8 @@ case "$PLATFORM" in
     # android_prepare.py), so prefer the explicit arm64 dir and fall back to any
     # release APK.
     APK=$(find_first "$BASE/arm64" "*-release.apk")
-    [ -z "$APK" ] && APK=$(find "$BASE" -name "*-release.apk" 2>/dev/null | head -1)
-    [ -n "$APK" ] && cp "$APK" "release/astrbot-plus-${VERSION}-android-arm64.apk"
+    if [ -z "$APK" ]; then APK=$(find_first "$BASE" "*-release.apk"); fi
+    if [ -n "$APK" ]; then cp "$APK" "release/astrbot-plus-${VERSION}-android-arm64.apk"; fi
     ;;
   *)
     echo "unknown platform: $PLATFORM" >&2
