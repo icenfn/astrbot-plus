@@ -59,8 +59,8 @@ Telegram 重新设计，采用 Vuetify 4 组件库构建。当前版本聚焦于
 | 平台 | 产物 |
 | --- | --- |
 | Windows | `astrbot-plus-<版本>-windows-x64-setup.exe` |
-| Linux | `astrbot-plus-<版本>-linux-amd64.deb` / `…-linux-x86_64.rpm` |
-| Android | `astrbot-plus-<版本>-android-arm64.apk` / `…-android-arm.apk` |
+| Linux | `astrbot-plus-<版本>-linux-arm64.deb` / `…-linux-aarch64.rpm` |
+| Android | `astrbot-plus-<版本>-android-arm64.apk` |
 
 发布由 [`.github/workflows/release.yml`](.github/workflows/release.yml) 统一完成：
 读取 `CHANGELOG.md` 的最新版本号，三端并行构建后在**同一个工作流**里汇总创建
@@ -107,7 +107,7 @@ npm run tauri build  # 打包桌面应用
 
 Android 相关细节见 [`docs/MOBILE.md`](./docs/MOBILE.md)。要点：
 
-- 已配置 `bundle.android`（minSdk 24），并限制 ABI 为 **arm64 + armv7**
+- 已配置 `bundle.android`（minSdk 24），并限制 ABI 为 **arm64（aarch64）**
 - **图标**：`tauri android init` 会写入模板默认图标，构建流程会用
   `src-tauri/icons/android/` 覆盖为 AstrBot+ 自定义图标
 - **签名**：仓库内置稳定 `android/debug.keystore` 作为默认签名，保证跨版本覆盖安装；

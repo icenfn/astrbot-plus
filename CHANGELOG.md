@@ -2,6 +2,14 @@
 
 本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## v0.2.1
+
+### 变更
+
+- 🤖 **Android 仅打包 arm64（aarch64）版本**：构建工作流不再产出 armv7（32 位）APK，仅安装 `aarch64-linux-android` 目标并使用 `--target aarch64` 构建。
+- 🐧 **Linux 桌面端改为 arm64（aarch64）打包，不再产出 x86_64**：Linux 构建切换到 arm64 runner，产物命名为 `astrbot-plus-<version>-linux-arm64.deb` 与 `astrbot-plus-<version>-linux-aarch64.rpm`。
+- 🔖 版本号提升至 `0.2.1`；配套插件 [astrbot-plugin-plus](https://github.com/icenfn/astrbot-plugin-plus) 同步为 `0.2.1`。
+
 ## v0.2.0
 
 ### 新增

@@ -2,7 +2,7 @@ name: Release
 
 # 手动触发，或推送 v* 标签时触发。
 # 从 CHANGELOG.md 提取最新版本号与发布说明，构建
-# Linux(deb/rpm) / Windows(nsis) / Android(arm64+armv7)，并汇总为一次 GitHub Release。
+# Linux(deb/rpm, arm64) / Windows(nsis) / Android(arm64)，并汇总为一次 GitHub Release。
 on:
   workflow_dispatch:
   push:
@@ -28,10 +28,11 @@ jobs:
         run: python3 scripts/extract_changelog.py >> "$GITHUB_OUTPUT"
 
   build-linux:
-    name: Build (Linux deb/rpm)
+    name: Build (Linux deb/rpm, arm64)
     needs: prepare
     if: needs.prepare.outputs.should_release == 'true'
-    runs-on: ubuntu-22.04
+    # 仅构建 arm64（aarch64）桌面包，不再打包 x86_64。
+    runs-on: ubuntu-22.04-arm
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -45,7 +46,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev build-essential curl wget file
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
-      - name: Build Linux bundles (deb / rpm)
+      - name: Build Linux bundles (deb / rpm, arm64)
         run: npm run tauri build -- --bundles deb,rpm
       - name: Collect + rename artifacts
         run: bash scripts/collect_artifacts.sh linux "${{ needs.prepare.outputs.version }}"
@@ -81,7 +82,7 @@ jobs:
           if-no-files-found: error
 
   build-android:
-    name: Build (Android arm64/armv7)
+    name: Build (Android arm64)
     needs: prepare
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-22.04
@@ -92,10 +93,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rust toolchain + Android targets (arm64 + armv7)
+      - name: Rust toolchain + Android target (arm64 only)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi
+          targets: aarch64-linux-android
 
       - uses: actions/setup-node@v4
         with:
@@ -139,8 +140,8 @@ jobs:
             --icons src-tauri/icons/android \
             --keystore "$RUNNER_TEMP/release.keystore"
 
-      - name: Build Android APK (split per ABI)
-        run: npx tauri android build --apk --split-per-abi
+      - name: Build Android APK (arm64)
+        run: npx tauri android build --apk --target aarch64
         env:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
 

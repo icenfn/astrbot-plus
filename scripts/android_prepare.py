@@ -176,14 +176,14 @@ def set_version(project: str, version: str) -> None:
 
 
 def restrict_abis(project: str) -> None:
-    """Only build arm64-v8a + armeabi-v7a (skip x86 emulator ABIs)."""
+    """Only build arm64-v8a (skip 32-bit armv7 and x86 emulator ABIs)."""
     for rel in ("gradle.properties", os.path.join("app", "gradle.properties")):
         path = os.path.join(project, rel)
         with open(path, "a", encoding="utf-8") as f:
-            f.write("abiList=arm64-v8a,armeabi-v7a\n")
-            f.write("archList=arm64,arm\n")
-            f.write("targetList=aarch64,armv7\n")
-    log("ABIs restricted to arm64-v8a + armeabi-v7a")
+            f.write("abiList=arm64-v8a\n")
+            f.write("archList=arm64\n")
+            f.write("targetList=aarch64\n")
+    log("ABIs restricted to arm64-v8a")
 
 
 def wire_signing(project: str) -> None:

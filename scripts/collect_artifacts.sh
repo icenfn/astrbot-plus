@@ -13,8 +13,8 @@ case "$PLATFORM" in
   linux)
     DEB=$(find_first "src-tauri/target/release/bundle/deb" "*.deb")
     RPM=$(find_first "src-tauri/target/release/bundle/rpm" "*.rpm")
-    [ -n "$DEB" ] && cp "$DEB" "release/astrbot-plus-${VERSION}-linux-amd64.deb"
-    [ -n "$RPM" ] && cp "$RPM" "release/astrbot-plus-${VERSION}-linux-x86_64.rpm"
+    [ -n "$DEB" ] && cp "$DEB" "release/astrbot-plus-${VERSION}-linux-arm64.deb"
+    [ -n "$RPM" ] && cp "$RPM" "release/astrbot-plus-${VERSION}-linux-aarch64.rpm"
     ;;
   windows)
     EXE=$(find_first "src-tauri/target/release/bundle/nsis" "*.exe")
@@ -23,9 +23,7 @@ case "$PLATFORM" in
   android)
     BASE="src-tauri/gen/android/app/build/outputs/apk"
     A64=$(find_first "$BASE/arm64" "*-release.apk")
-    A32=$(find_first "$BASE/arm" "*-release.apk")
     [ -n "$A64" ] && cp "$A64" "release/astrbot-plus-${VERSION}-android-arm64.apk"
-    [ -n "$A32" ] && cp "$A32" "release/astrbot-plus-${VERSION}-android-arm.apk"
     ;;
   *)
     echo "unknown platform: $PLATFORM" >&2
