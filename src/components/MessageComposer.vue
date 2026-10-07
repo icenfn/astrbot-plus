@@ -66,6 +66,8 @@ function onViewportResize() {
 onMounted(() => {
   window.visualViewport?.addEventListener("resize", onViewportResize);
   window.visualViewport?.addEventListener("scroll", onViewportResize);
+  // Fallback for WebViews where the visual viewport events are flaky.
+  window.addEventListener("resize", onViewportResize);
   resize();
 });
 
@@ -73,6 +75,7 @@ onBeforeUnmount(() => {
   timers.forEach((id) => window.clearTimeout(id));
   window.visualViewport?.removeEventListener("resize", onViewportResize);
   window.visualViewport?.removeEventListener("scroll", onViewportResize);
+  window.removeEventListener("resize", onViewportResize);
   document.documentElement.classList.remove("composer-focused");
 });
 

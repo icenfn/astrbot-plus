@@ -30,6 +30,17 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/**
+ * AstrBot's `waking_check` stage strips a single leading wake-prefix (default
+ * "/") from every inbound message before it reaches the pipeline / LLM. A user
+ * who literally types "/xxx" would therefore have the leading slash swallowed
+ * and the AI only ever sees "xxx". Doubling the leading slash escapes it: the
+ * server removes exactly one and the model receives the original "/xxx".
+ */
+function escapeLeadingSlash(text: string): string {
+  return text.startsWith("/") ? `/${text}` : text;
+}
+
 function loadJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -167,6 +178,11 @@ export const useChatStore = defineStore("chat", () => {
     unread.value[key] = Math.max(1, unread.value[key] ?? 0);
   }
 
+  /** Increment the unread counter (a genuinely new incoming message). */
+  function bumpUnread(key: string): void {
+    unread.value[key] = (unread.value[key] ?? 0) + 1;
+  }
+
   function openTarget(t: ChatTarget): void {
     activeKey.value = keyOf(t.kind, t.id);
     markRead(activeKey.value);
@@ -210,8 +226,17 @@ export const useChatStore = defineStore("chat", () => {
     delete threads.value[keyOf("friend", id)];
     delete unread.value[keyOf("friend", id)];
     if (activeKey.value === keyOf("friend", id)) activeKey.value = "";
+    const client = settings.buildClient();
+    // Delete the matching server-side AstrBot conversation so the local and the
+    // server histories stay in sync (otherwise the messages linger on the server
+    // and later resurface, which was the "删除不同步" bug).
     try {
-      await settings.buildClient().plusDeleteUser(id);
+      await client.deleteConversationsByUmo([friendUmo(id)]);
+    } catch {
+      /* best-effort */
+    }
+    try {
+      await client.plusDeleteUser(id);
     } catch {
       /* best-effort */
     }
@@ -239,12 +264,22 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   async function removeGroup(id: string): Promise<void> {
+    const group = groups.value.find((g) => g.id === id);
     groups.value = groups.value.filter((g) => g.id !== id);
     delete threads.value[keyOf("group", id)];
     delete unread.value[keyOf("group", id)];
     if (activeKey.value === keyOf("group", id)) activeKey.value = "";
+    const client = settings.buildClient();
+    // Each group member keeps its own UMO / conversation — delete them all so the
+    // server side is cleaned up together with the local thread.
     try {
-      await settings.buildClient().plusDeleteGroup(id);
+      const umos = (group?.memberIds ?? []).map((m) => groupMemberUmo(id, m));
+      if (umos.length) await client.deleteConversationsByUmo(umos);
+    } catch {
+      /* best-effort */
+    }
+    try {
+      await client.plusDeleteGroup(id);
     } catch {
       /* best-effort */
     }
@@ -331,6 +366,9 @@ export const useChatStore = defineStore("chat", () => {
     thread.lastMessage = body;
 
     const client = settings.buildClient();
+    // Escape a literal leading "/" so the server's wake-prefix stripping does not
+    // swallow it before the LLM sees the message.
+    const serverText = escapeLeadingSlash(body);
 
     if (target.kind === "friend") {
       const friend = target.friend!;
@@ -348,7 +386,7 @@ export const useChatStore = defineStore("chat", () => {
         await client.chatStream(
           {
             username: friendUmo(friend.id),
-            message: body,
+            message: serverText,
             sessionId: thread.sessions[friend.id],
             conversationId: thread.conversations[friend.id],
             platformId: "webchat",
@@ -374,6 +412,9 @@ export const useChatStore = defineStore("chat", () => {
         thread.busy = false;
         thread.updatedAt = Date.now();
       }
+      // If the user has since switched to another chat, flag this reply as unread
+      // so the list shows a badge for it.
+      if (activeKey.value !== key && assistant.text && !assistant.error) bumpUnread(key);
       return;
     }
 
@@ -384,6 +425,7 @@ export const useChatStore = defineStore("chat", () => {
       .filter((x): x is AiFriend => !!x);
     thread.busy = true;
 
+    let replied = 0;
     const jobs = members.map(async (friend) => {
       const assistant: ChatMessage = {
         role: "assistant",
@@ -398,7 +440,7 @@ export const useChatStore = defineStore("chat", () => {
         await client.chatStream(
           {
             username: groupMemberUmo(group.id, friend.id),
-            message: body,
+            message: serverText,
             sessionId: thread.sessions[friend.id],
             conversationId: thread.conversations[friend.id],
             platformId: "webchat",
@@ -416,6 +458,7 @@ export const useChatStore = defineStore("chat", () => {
           },
         );
         if (!assistant.text) assistant.text = "(空回复)";
+        replied += 1;
       } catch (e) {
         assistant.error = true;
         assistant.text = `发送失败：${errMsg(e)}`;
@@ -428,6 +471,9 @@ export const useChatStore = defineStore("chat", () => {
     thread.busy = false;
     thread.updatedAt = Date.now();
     thread.lastMessage = body;
+    // Same as the 1:1 case: badge the thread if the user moved on while the group
+    // was answering.
+    if (activeKey.value !== key && replied > 0) bumpUnread(key);
   }
 
   return {
@@ -452,6 +498,7 @@ export const useChatStore = defineStore("chat", () => {
     openTarget,
     markRead,
     markUnread,
+    bumpUnread,
     unreadOf,
     addFriend,
     removeFriend,

@@ -32,7 +32,9 @@ export function useVisualViewport() {
     const layoutHeight = window.innerHeight;
     if (vv) {
       const height = Math.round(vv.height);
-      const offsetTop = Math.round(vv.offsetTop);
+      // `offsetTop` can briefly report a negative value during the keyboard
+      // animation; clamp it so the shell never floats above the screen.
+      const offsetTop = Math.max(0, Math.round(vv.offsetTop));
       root.style.setProperty("--app-height", `${height}px`);
       root.style.setProperty("--app-offset-top", `${offsetTop}px`);
       root.classList.toggle("keyboard-open", layoutHeight - height > KEYBOARD_THRESHOLD);
@@ -48,29 +50,42 @@ export function useVisualViewport() {
     if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
   }
 
+  // Re-assert the layout a few times after focus changes: the keyboard animates
+  // in over ~250ms and some WebViews only report the final size late.
+  function reapplySoon() {
+    apply();
+    window.setTimeout(apply, 120);
+    window.setTimeout(apply, 320);
+  }
+
   onMounted(() => {
     vv = window.visualViewport ?? null;
     apply();
     if (vv) {
       vv.addEventListener("resize", apply);
       vv.addEventListener("scroll", apply);
-    } else {
-      window.addEventListener("resize", apply);
     }
+    // Always listen to the window too: on some Android WebViews the visual
+    // viewport events fire late or not at all, so a plain window resize is a
+    // useful fallback.
+    window.addEventListener("resize", apply);
     window.addEventListener("orientationchange", apply);
     window.addEventListener("scroll", lockScroll, { passive: true });
     document.addEventListener("focusin", lockScroll);
+    document.addEventListener("focusin", reapplySoon);
+    document.addEventListener("focusout", reapplySoon);
   });
 
   onUnmounted(() => {
     if (vv) {
       vv.removeEventListener("resize", apply);
       vv.removeEventListener("scroll", apply);
-    } else {
-      window.removeEventListener("resize", apply);
     }
+    window.removeEventListener("resize", apply);
     window.removeEventListener("orientationchange", apply);
     window.removeEventListener("scroll", lockScroll);
     document.removeEventListener("focusin", lockScroll);
+    document.removeEventListener("focusin", reapplySoon);
+    document.removeEventListener("focusout", reapplySoon);
   });
 }

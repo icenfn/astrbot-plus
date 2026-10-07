@@ -28,17 +28,39 @@ function onMessagesScroll() {
 
 /**
  * Scroll the message list to the bottom.
+ *
  * `force` jumps regardless of the current position (used when a message is
- * sent or when a different conversation is opened); otherwise the jump only
- * happens while the user is already pinned to the bottom, so reading history
- * is not interrupted by an incoming/streaming message.
+ * sent, when a different conversation is opened, or on first mount); otherwise
+ * the jump only happens while the user is already pinned to the bottom, so
+ * reading history is not interrupted by an incoming/streaming message.
+ *
+ * We jump *instantly* (temporarily overriding `scroll-behavior: smooth`) and
+ * then re-assert the position across the next few frames. A single
+ * `scrollTop = scrollHeight` on the frame the conversation appears is not
+ * enough: the messages (markdown / KaTeX / images) and even the virtual
+ * keyboard keep changing the content height for a few hundred milliseconds
+ * afterwards, which is exactly why "进入聊天页没有滚到底部" happened.
  */
 async function scrollToBottom(force = false) {
+  if (!force && !pinned.value) return;
   await nextTick();
+  jumpToEnd();
+  requestAnimationFrame(() => {
+    jumpToEnd();
+    requestAnimationFrame(jumpToEnd);
+  });
+  // Two delayed passes cover late font / image / markdown layout.
+  window.setTimeout(jumpToEnd, 80);
+  window.setTimeout(jumpToEnd, 240);
+}
+
+function jumpToEnd() {
   const el = scrollEl.value;
   if (!el) return;
-  if (!force && !pinned.value) return;
+  const previous = el.style.scrollBehavior;
+  el.style.scrollBehavior = "auto";
   el.scrollTop = el.scrollHeight;
+  el.style.scrollBehavior = previous;
 }
 
 /** Floating "jump to bottom" button: shown only while reading history. */
@@ -102,6 +124,10 @@ function onViewportResize() {
 }
 onMounted(() => {
   window.visualViewport?.addEventListener("resize", onViewportResize);
+  // The window can mount with a conversation already active (mobile single-pane
+  // navigation), where the activeKey watcher never fires — so jump to the bottom
+  // explicitly on mount as well.
+  void scrollToBottom(true);
 });
 onBeforeUnmount(() => {
   window.visualViewport?.removeEventListener("resize", onViewportResize);
@@ -130,14 +156,6 @@ onBeforeUnmount(() => {
           <div class="head-name">{{ activeTarget.displayName }}</div>
           <div class="head-sub">{{ subtitle }}</div>
         </div>
-        <v-spacer />
-        <v-btn
-          icon="mdi-broom"
-          variant="text"
-          size="small"
-          title="清空本地会话记录"
-          @click="chat.clearThread(activeKey)"
-        />
       </header>
 
       <div class="messages-wrap">

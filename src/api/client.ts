@@ -223,6 +223,35 @@ export class AstrbotClient {
     await this.alova.Delete(`/conversations/${encodeURIComponent(cid)}?${query}`).send();
   }
 
+  /**
+   * Delete every server-side conversation whose umo (`user_id`) is in `umos`.
+   *
+   * AstrBot keeps each chat surface (and, for a group, each member) under its own
+   * umo/conversation. When a local AI friend or group chat is removed we must
+   * delete the matching server conversations too, or the history survives on the
+   * server and reappears later — the "删除不同步" bug. Best-effort: a failure on
+   * one conversation never blocks the others.
+   */
+  async deleteConversationsByUmo(umos: string[]): Promise<void> {
+    const wanted = new Set(umos.filter(Boolean));
+    if (!wanted.size) return;
+    let conversations: Conversation[] = [];
+    try {
+      conversations = await this.listConversations({ pageSize: 1000 });
+    } catch {
+      return;
+    }
+    for (const c of conversations) {
+      const umo = c.user_id || c.umo_info?.umo || "";
+      if (!umo || !wanted.has(umo)) continue;
+      try {
+        await this.deleteConversation(c.cid, umo);
+      } catch {
+        /* best-effort per conversation */
+      }
+    }
+  }
+
   // --- Companion plugin: AI users & groups ---------------------------------
 
   /** Unwrap the plugin's `{status, message, data}` envelope. */
