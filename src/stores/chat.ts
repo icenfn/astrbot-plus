@@ -381,6 +381,11 @@ export const useChatStore = defineStore("chat", () => {
         senderName: friend.name,
       };
       thread.messages.push(assistant);
+      // Address the assistant bubble THROUGH the reactive array. Mutating the raw
+      // `assistant` object captured above would bypass Vue's proxy, so the bubble
+      // would never re-render and the streamed reply stayed invisible — the root
+      // cause of "客户端给 AI 发送消息一直没有回应"（服务端其实已回应）.
+      const m = () => thread.messages[thread.messages.length - 1];
       thread.busy = true;
       try {
         await client.chatStream(
@@ -396,25 +401,25 @@ export const useChatStore = defineStore("chat", () => {
               thread.sessions[friend.id] = sid;
             },
             onDelta: (_d, full) => {
-              assistant.text = full;
+              m().text = full;
             },
             onTokens: (tk) => {
-              assistant.tokens = tk;
+              m().tokens = tk;
             },
           },
         );
-        if (!assistant.text) assistant.text = "(空回复)";
+        if (!m().text) m().text = "(空回复)";
       } catch (e) {
-        assistant.error = true;
-        assistant.text = `发送失败：${errMsg(e)}`;
+        m().error = true;
+        m().text = `发送失败：${errMsg(e)}`;
       } finally {
-        assistant.streaming = false;
+        m().streaming = false;
         thread.busy = false;
         thread.updatedAt = Date.now();
       }
       // If the user has since switched to another chat, flag this reply as unread
       // so the list shows a badge for it.
-      if (activeKey.value !== key && assistant.text && !assistant.error) bumpUnread(key);
+      if (activeKey.value !== key && m().text && !m().error) bumpUnread(key);
       return;
     }
 
@@ -436,6 +441,11 @@ export const useChatStore = defineStore("chat", () => {
         senderName: friend.name,
       };
       thread.messages.push(assistant);
+      // Address this member's bubble through the reactive array (see the 1:1 note
+      // above); each member owns its own index so concurrent group replies all
+      // update independently instead of rendering blank.
+      const idx = thread.messages.length - 1;
+      const m = () => thread.messages[idx];
       try {
         await client.chatStream(
           {
@@ -450,20 +460,20 @@ export const useChatStore = defineStore("chat", () => {
               thread.sessions[friend.id] = sid;
             },
             onDelta: (_d, full) => {
-              assistant.text = full;
+              m().text = full;
             },
             onTokens: (tk) => {
-              assistant.tokens = tk;
+              m().tokens = tk;
             },
           },
         );
-        if (!assistant.text) assistant.text = "(空回复)";
+        if (!m().text) m().text = "(空回复)";
         replied += 1;
       } catch (e) {
-        assistant.error = true;
-        assistant.text = `发送失败：${errMsg(e)}`;
+        m().error = true;
+        m().text = `发送失败：${errMsg(e)}`;
       } finally {
-        assistant.streaming = false;
+        m().streaming = false;
       }
     });
 

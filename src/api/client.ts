@@ -342,19 +342,66 @@ export class AstrbotClient {
     if (params.conversationId) body.conversation_id = params.conversationId;
     if (params.platformId) body.platform_id = params.platformId;
 
-    const res = (await this.streamAlova.Post("/chat", body).send()) as unknown as Response;
+    // Ask for the SSE stream explicitly — some AstrBot deployments only switch
+    // the response to `text/event-stream` when the client advertises it.
+    const res = (await this.streamAlova
+      .Post("/chat", body, { headers: { Accept: "text/event-stream" } })
+      .send()) as unknown as Response;
     if (!res.body) throw new AstrbotError("Empty response body", res.status);
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let acc = "";
     let full = "";
+
+    const applyEvent = (evt: Record<string, unknown>): void => {
+      // Accept both `type` and the shorter `t` spelling used by some builds.
+      const type = String(evt.type ?? evt.t ?? "");
+      if (
+        (type === "session_id" || type === "session_bound") &&
+        typeof evt.session_id === "string"
+      ) {
+        handlers.onSessionId?.(evt.session_id);
+      } else if (type === "run_started") {
+        const d = evt.data as Record<string, unknown> | undefined;
+        if (d && typeof d.run_id === "string") handlers.onRunId?.(d.run_id);
+      } else if (type === "plain") {
+        // `data` holds the incremental chunk (string, or object with text).
+        const chunk = eventText(evt);
+        if (chunk) {
+          full += chunk;
+          handlers.onDelta?.(chunk, full);
+        }
+      } else if (type === "complete") {
+        const d = eventText(evt);
+        // `complete` carries the full answer; if we never streamed deltas, use it.
+        if (!full && d) {
+          full = d;
+          handlers.onDelta?.(d, full);
+        }
+      } else if (type === "agent_stats") {
+        const d = evt.data as Record<string, unknown> | undefined;
+        const usage = (d?.token_usage ?? d?.usage) as Record<string, number> | undefined;
+        if (usage) {
+          handlers.onTokens?.({
+            input: (usage.input_other ?? 0) + (usage.input_cached ?? 0),
+            output: usage.output ?? 0,
+          });
+        }
+      } else if (type === "error") {
+        const msg = eventText(evt) || "聊天出错";
+        throw new AstrbotError(msg);
+      }
+    };
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+      const chunkText = decoder.decode(value, { stream: true });
+      acc += chunkText;
+      buffer += chunkText;
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
       for (const raw of lines) {
@@ -368,43 +415,66 @@ export class AstrbotClient {
         } catch {
           continue;
         }
-        const type = String(evt.type ?? "");
-        if (type === "session_id" && typeof evt.session_id === "string") {
-          handlers.onSessionId?.(evt.session_id);
-        } else if (type === "run_started") {
-          const d = evt.data as Record<string, unknown> | undefined;
-          if (d && typeof d.run_id === "string") handlers.onRunId?.(d.run_id);
-        } else if (type === "plain") {
-          // `data` holds the incremental chunk; `streaming` true while streaming.
-          const chunk = typeof evt.data === "string" ? evt.data : "";
-          if (chunk) {
-            full += chunk;
-            handlers.onDelta?.(chunk, full);
-          }
-        } else if (type === "complete") {
-          const d = typeof evt.data === "string" ? evt.data : "";
-          // `complete` carries the full answer; if we never streamed deltas, use it.
-          if (!full && d) {
-            full = d;
-            handlers.onDelta?.(d, full);
-          }
-        } else if (type === "agent_stats") {
-          const d = evt.data as Record<string, unknown> | undefined;
-          const usage = d?.token_usage as Record<string, number> | undefined;
-          if (usage) {
-            handlers.onTokens?.({
-              input: (usage.input_other ?? 0) + (usage.input_cached ?? 0),
-              output: usage.output ?? 0,
-            });
-          }
-        } else if (type === "error") {
-          const msg = typeof evt.data === "string" ? evt.data : "聊天出错";
-          throw new AstrbotError(msg);
-        }
+        applyEvent(evt);
+      }
+    }
+    // Fallback: some AstrBot builds reply with a single JSON body (no SSE frames)
+    // when streaming is unavailable. Parse the whole payload and pull the
+    // assistant text out so the reply is not silently dropped (which would leave
+    // an empty bubble even though the server answered).
+    if (!full) {
+      const text = extractReplyText(safeJson(acc.trim()) ?? safeJson(buffer.trim()));
+      if (text) {
+        full = text;
+        handlers.onDelta?.(text, full);
       }
     }
     return full;
   }
+}
+
+/** Pull assistant text from a streamed event, tolerating string or object `data`. */
+function eventText(evt: Record<string, unknown>): string {
+  const d = evt.data;
+  if (typeof d === "string") return d;
+  if (d && typeof d === "object") {
+    const o = d as Record<string, unknown>;
+    if (typeof o.text === "string") return o.text;
+    if (typeof o.content === "string") return o.content;
+    if (typeof o.delta === "string") return o.delta;
+  }
+  if (typeof evt.text === "string") return evt.text;
+  if (typeof evt.message === "string") return evt.message;
+  return "";
+}
+
+/**
+ * Best-effort text extraction from a non-streamed chat response. Handles the
+ * several shapes AstrBot / OpenAI-compatible gateways may return:
+ * `{message|content|text|reply|response|result}`, a nested `{data:{...}}`, or
+ * `{choices:[{message:{content}}]}`.
+ */
+function extractReplyText(body: unknown): string {
+  if (!body) return "";
+  if (typeof body === "string") return body.trim();
+  if (typeof body !== "object") return "";
+  const o = body as Record<string, unknown>;
+  for (const k of ["message", "content", "text", "reply", "response", "result"]) {
+    const v = o[k];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  if (o.data && typeof o.data === "object") {
+    const nested = extractReplyText(o.data);
+    if (nested) return nested;
+  }
+  const choices = o.choices;
+  if (Array.isArray(choices) && choices.length) {
+    const c = choices[0] as Record<string, unknown>;
+    const msg = c?.message as Record<string, unknown> | undefined;
+    if (msg && typeof msg.content === "string") return msg.content.trim();
+    if (typeof c?.text === "string") return c.text.trim();
+  }
+  return "";
 }
 
 /** Strip the injected <system_reminder> breadcrumb from a user turn. */
