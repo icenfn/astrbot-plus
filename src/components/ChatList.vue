@@ -4,7 +4,7 @@ import { storeToRefs } from "pinia";
 import { useChatStore } from "@/stores/chat";
 import type { ChatTarget } from "@/api/types";
 import ContactItem from "./ContactItem.vue";
-import AiFriendDialog from "./AiFriendDialog.vue";
+import NewDialogDialog from "./NewDialogDialog.vue";
 import GroupDialog from "./GroupDialog.vue";
 
 const chat = useChatStore();
@@ -13,6 +13,7 @@ const { activeKey, filteredContacts, loadingContacts, contactsError, filter, sea
 
 const filters = [
   { label: "全部", value: "all" as const, icon: "mdi-format-list-bulleted" },
+  { label: "对话", value: "dialog" as const, icon: "mdi-chat-outline" },
   { label: "AI 好友", value: "friend" as const, icon: "mdi-account" },
   { label: "群聊", value: "group" as const, icon: "mdi-account-group" },
 ];
@@ -21,14 +22,14 @@ function isActive(t: ChatTarget): boolean {
   return `${t.kind}:${t.id}` === activeKey.value;
 }
 
-// --- Add menu (AI friend / group) --------------------------------------------
+// --- Add menu (dialog / group) ----------------------------------------------
 const addMenuOpen = ref(false);
-const friendDialog = ref(false);
+const dialogDialog = ref(false);
 const groupDialog = ref(false);
 
-function openFriendDialog() {
+function openNewDialog() {
   addMenuOpen.value = false;
-  friendDialog.value = true;
+  dialogDialog.value = true;
 }
 function openGroupDialog() {
   addMenuOpen.value = false;
@@ -44,6 +45,12 @@ const deleteError = ref("");
 
 const menuUnread = computed(() =>
   menuTarget.value ? chat.unreadOf(`${menuTarget.value.kind}:${menuTarget.value.id}`) : 0,
+);
+
+const deletable = computed(() => menuTarget.value?.kind === "dialog" || menuTarget.value?.kind === "group");
+
+const deleteLabel = computed(() =>
+  menuTarget.value?.kind === "dialog" ? "删除对话" : "解散群聊",
 );
 
 function openMenu(t: ChatTarget) {
@@ -77,8 +84,8 @@ async function confirmDelete() {
   deleting.value = true;
   deleteError.value = "";
   try {
-    if (t.kind === "friend") await chat.removeFriend(t.id);
-    else await chat.removeGroup(t.id);
+    if (t.kind === "dialog") await chat.removeDialog(t.id);
+    else if (t.kind === "group") await chat.removeGroup(t.id);
     confirmOpen.value = false;
     menuTarget.value = null;
   } catch (e) {
@@ -113,9 +120,9 @@ async function refresh() {
           </template>
           <v-list density="compact">
             <v-list-item
-              prepend-icon="mdi-account-plus"
-              title="新建 AI 好友"
-              @click="openFriendDialog"
+              prepend-icon="mdi-chat-plus-outline"
+              title="新建对话"
+              @click="openNewDialog"
             />
             <v-list-item
               prepend-icon="mdi-account-multiple-plus"
@@ -127,7 +134,7 @@ async function refresh() {
       </div>
       <v-text-field
         v-model="search"
-        placeholder="搜索好友或群聊"
+        placeholder="搜索对话、好友或群聊"
         prepend-inner-icon="mdi-magnify"
         density="compact"
         variant="solo-filled"
@@ -166,10 +173,10 @@ async function refresh() {
       </div>
 
       <div v-else-if="!filteredContacts.length" class="empty">
-        <v-icon icon="mdi-account-heart-outline" size="40" class="mb-2" />
-        <p class="text-medium-emphasis">还没有 AI 好友</p>
+        <v-icon icon="mdi-chat-plus-outline" size="40" class="mb-2" />
+        <p class="text-medium-emphasis">还没有对话</p>
         <p class="text-caption text-medium-emphasis text-center">
-          点击右上角「+」新建 AI 好友，或把它们拉进一个群聊。
+          点击右上角「+」新建对话，与 AstrBot 的 Webchat 沟通；也可以和 WebUI 里创建的机器人聊。
         </p>
       </div>
 
@@ -205,8 +212,9 @@ async function refresh() {
             @click="onMarkUnread"
           />
           <v-list-item
+            v-if="deletable"
             prepend-icon="mdi-delete-outline"
-            :title="menuTarget?.kind === 'friend' ? '删除 AI 好友' : '解散群聊'"
+            :title="deleteLabel"
             base-color="error"
             @click="askDelete"
           />
@@ -217,12 +225,10 @@ async function refresh() {
     <!-- Delete confirmation -->
     <v-dialog v-model="confirmOpen" max-width="360">
       <v-card>
-        <v-card-title>
-          {{ menuTarget?.kind === "friend" ? "删除 AI 好友" : "解散群聊" }}
-        </v-card-title>
+        <v-card-title>{{ deleteLabel }}</v-card-title>
         <v-card-text>
-          <template v-if="menuTarget?.kind === 'friend'">
-            确定要删除「{{ menuTarget?.displayName }}」吗？该好友的本地聊天记录会一并删除。
+          <template v-if="menuTarget?.kind === 'dialog'">
+            确定要删除「{{ menuTarget?.displayName }}」吗？该对话的历史记录会一并删除。
           </template>
           <template v-else>
             确定要解散「{{ menuTarget?.displayName }}」吗？群聊记录会被删除，群内 AI 好友本身不受影响。
@@ -246,7 +252,7 @@ async function refresh() {
       </v-card>
     </v-dialog>
 
-    <AiFriendDialog v-model="friendDialog" />
+    <NewDialogDialog v-model="dialogDialog" />
     <GroupDialog v-model="groupDialog" />
   </section>
 </template>
@@ -280,6 +286,7 @@ async function refresh() {
 .chips {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .scroll {
   flex: 1 1 auto;

@@ -1,25 +1,27 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
+import { useChatStore } from "@/stores/chat";
 import { notify } from "@/composables/useNotify";
 import { useWindow } from "@/composables/useWindow";
 import { isTauri } from "@/api/client";
 
 const settings = useSettingsStore();
-const { connecting, lastError, connected, botIds, providers } = storeToRefs(settings);
-const { setAutoStart, isAutoStartEnabled } = useWindow();
+const chat = useChatStore();
+const { connecting, lastError, connected } = storeToRefs(settings);
+const { friendCount, dialogCount } = storeToRefs(chat);
+const { setAutoStart } = useWindow();
 
 const revealKey = ref(false);
-const autostartAvailable = ref(false);
-
-onMounted(async () => {
-  autostartAvailable.value = isTauri() && (await isAutoStartEnabled()) !== undefined;
-});
 
 async function reconnect() {
-  const ok = await settings.testConnection();
-  if (ok) notify({ title: "AstrBot+", body: "连接成功" });
+  const ok = await settings.connect();
+  if (ok) {
+    await chat.loadContacts();
+    chat.startPolling(settings.settings.pollIntervalSec * 1000);
+    notify({ title: "AstrBot+", body: "连接成功" });
+  }
 }
 
 async function demoNotify() {
@@ -50,33 +52,36 @@ async function toggleAutoStart(value: boolean | null) {
       <v-card-item class="section-head">
         <template #prepend><v-icon icon="mdi-server-network" color="primary" /></template>
         <v-card-title>连接</v-card-title>
-        <v-card-subtitle>AstrBot 服务地址与 API Key</v-card-subtitle>
+        <v-card-subtitle>AstrBot+ 插件地址与访问密钥（Socket.io）</v-card-subtitle>
       </v-card-item>
       <v-card-text class="d-flex flex-column ga-3 pt-1">
         <v-text-field
-          v-model="settings.settings.baseUrl"
-          label="服务器地址"
-          placeholder="http://localhost:6185"
+          v-model="settings.settings.socketUrl"
+          label="插件服务器地址"
+          placeholder="http://localhost:6199"
           prepend-inner-icon="mdi-web"
           density="compact"
         />
         <v-text-field
-          v-model="settings.settings.apiKey"
-          label="API Key"
-          placeholder="abk_..."
+          v-model="settings.settings.accessKey"
+          label="访问密钥（API Key）"
+          placeholder="与插件 access_key 一致"
           prepend-inner-icon="mdi-key-variant"
           :type="revealKey ? 'text' : 'password'"
           :append-inner-icon="revealKey ? 'mdi-eye-off' : 'mdi-eye'"
           density="compact"
           @click:append-inner="revealKey = !revealKey"
         />
-        <div class="d-flex ga-2">
+        <div class="d-flex ga-2 align-center">
           <v-btn color="primary" size="small" :loading="connecting" prepend-icon="mdi-connection" @click="reconnect">
             测试连接
           </v-btn>
+          <v-btn size="small" variant="text" prepend-icon="mdi-close" @click="settings.disconnect()">
+            断开
+          </v-btn>
         </div>
-        <div v-if="botIds.length" class="text-caption text-medium-emphasis">
-          已发现的机器人：{{ botIds.join("、") }} · 提供商 {{ providers.length }} 个
+        <div v-if="connected" class="text-caption text-medium-emphasis">
+          已同步：{{ friendCount }} 个机器人 · {{ dialogCount }} 段对话
         </div>
       </v-card-text>
     </v-card>

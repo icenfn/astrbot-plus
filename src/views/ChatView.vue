@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed } from "vue";
+import { onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
@@ -14,15 +14,19 @@ const { connected } = storeToRefs(settings);
 const { activeKey } = storeToRefs(chat);
 const { isMobile } = usePlatform();
 
-const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
-
 // Mobile shows a single pane: the list, or the open conversation.
 const showListOnMobile = computed(() => !activeKey.value);
 
+import { computed } from "vue";
+const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
+
 onMounted(async () => {
   if (settings.hasCredentials && !connected.value) {
-    const ok = await settings.testConnection();
-    if (ok && !chat.contacts.length) await chat.loadContacts();
+    const ok = await settings.connect();
+    if (ok) {
+      await chat.loadContacts();
+      chat.startPolling(settings.settings.pollIntervalSec * 1000);
+    }
   }
 });
 </script>
@@ -48,7 +52,7 @@ onMounted(async () => {
         <img src="/logo.svg" alt="AstrBot+" width="96" height="96" />
         <h1 class="text-h5 mt-4">欢迎使用 AstrBot+</h1>
         <p class="text-medium-emphasis mt-2 text-center">
-          连接到你的 AstrBot 服务器，与 AI 好友私聊，或把多个 AI 拉进一个群聊。
+          连接到 AstrBot+ 配套插件，与 AstrBot Webchat 对话，或和 WebUI 里创建的 AI 好友聊天。
         </p>
         <ConnectionDialog class="mt-4" />
       </div>

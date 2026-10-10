@@ -87,11 +87,33 @@ export interface Contact {
 }
 
 /**
- * The two chat surfaces of AstrBot+:
- *  - `friend`: a 1:1 private chat with a single AI friend.
- *  - `group`:  a group chat hosting several AI friends at once.
+ * The chat surfaces of AstrBot+:
+ *  - `dialog`: a Webchat conversation (one AstrBot Webchat session).
+ *  - `friend`: an AI friend, i.e. a bot created in the AstrBot WebUI.
+ *  - `group`:  a group chat hosting several AI friends at once (reserved).
  */
-export type ChatKind = "friend" | "group";
+export type ChatKind = "dialog" | "friend" | "group";
+
+/** A bot created in the AstrBot WebUI ("创建机器人" page). */
+export interface BotInfo {
+  id: string;
+  name: string;
+  platform?: string;
+  enabled?: boolean;
+}
+
+/** A Webchat conversation, i.e. one AstrBot Webchat session. */
+export interface DialogRow {
+  id: string;
+  title: string;
+  /** The bot this dialog is bound to (one bot ↔ one dialog). */
+  botId?: string;
+  personaId?: string | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+  lastMessage?: string;
+  messageCount?: number;
+}
 
 /**
  * A user-defined AI friend. Each friend maps to one AstrBot chat
@@ -129,6 +151,8 @@ export interface ChatTarget {
   messageCount: number;
   friend?: AiFriend;
   group?: GroupChat;
+  dialog?: DialogRow;
+  bot?: BotInfo;
   members?: AiFriend[];
 }
 

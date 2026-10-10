@@ -9,22 +9,23 @@ const chat = useChatStore();
 const { connecting, lastError, connected } = storeToRefs(settings);
 
 const show = ref(false);
-const draftKey = ref(settings.settings.apiKey);
-const draftUrl = ref(settings.settings.baseUrl);
+const draftUrl = ref(settings.settings.socketUrl);
+const draftKey = ref(settings.settings.accessKey);
 const revealKey = ref(false);
 
 function open() {
-  draftKey.value = settings.settings.apiKey;
-  draftUrl.value = settings.settings.baseUrl;
+  draftUrl.value = settings.settings.socketUrl;
+  draftKey.value = settings.settings.accessKey;
   show.value = true;
 }
 
 async function save() {
-  settings.settings.apiKey = draftKey.value.trim();
-  settings.settings.baseUrl = draftUrl.value.trim();
-  const ok = await settings.testConnection();
+  settings.settings.socketUrl = draftUrl.value.trim();
+  settings.settings.accessKey = draftKey.value.trim();
+  const ok = await settings.connect();
   if (ok) {
     await chat.loadContacts();
+    chat.startPolling(settings.settings.pollIntervalSec * 1000);
     show.value = false;
   }
 }
@@ -33,7 +34,7 @@ async function save() {
 <template>
   <div class="conn">
     <v-btn color="primary" size="large" prepend-icon="mdi-connection" @click="open">
-      连接到 AstrBot 服务器
+      连接到 AstrBot+ 插件
     </v-btn>
 
     <v-dialog v-model="show" max-width="520" persistent>
@@ -52,21 +53,21 @@ async function save() {
           />
           <v-text-field
             v-model="draftUrl"
-            label="AstrBot 服务器地址"
-            placeholder="http://localhost:6185"
+            label="插件服务器地址"
+            placeholder="http://localhost:6199"
             prepend-inner-icon="mdi-web"
-            hint="AstrBot 服务根地址，无需包含 /api"
+            hint="AstrBot+ 配套插件对外暴露的唯一端口，无需包含路径"
             persistent-hint
           />
           <v-text-field
             v-model="draftKey"
-            label="API Key"
-            placeholder="abk_..."
+            label="访问密钥（API Key）"
+            placeholder="与插件配置中的 access_key 一致"
             prepend-inner-icon="mdi-key-variant"
             :type="revealKey ? 'text' : 'password'"
             :append-inner-icon="revealKey ? 'mdi-eye-off' : 'mdi-eye'"
             @click:append-inner="revealKey = !revealKey"
-            hint="在 AstrBot 控制台「开发者 / API Key」中创建，需包含 chat / im 相关 scope"
+            hint="在 AstrBot+ 插件配置中设置的访问密钥"
             persistent-hint
           />
         </v-card-text>

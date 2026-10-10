@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount } from "vue";
 import type { ChatTarget } from "@/api/types";
 import AstrbotAvatar from "./AstrbotAvatar.vue";
 
@@ -10,6 +10,7 @@ const emit = defineEmits<{
 }>();
 
 const isGroup = computed(() => props.target.kind === "group");
+const isDialog = computed(() => props.target.kind === "dialog");
 
 const unreadLabel = computed(() => {
   const n = props.unread ?? 0;
@@ -25,6 +26,7 @@ const subtitle = computed(() => {
     const n = props.target.members?.length ?? 0;
     return `群聊 · ${n} 个 AI`;
   }
+  if (isDialog.value) return "对话";
   return "AI 好友";
 });
 
@@ -103,6 +105,7 @@ onBeforeUnmount(clearPress);
         <span class="preview">{{ subtitle }}</span>
         <span v-if="unreadLabel" class="badge">{{ unreadLabel }}</span>
         <v-chip v-else-if="isGroup" size="x-small" color="primary" variant="tonal" label>群</v-chip>
+        <v-chip v-else-if="isDialog" size="x-small" color="primary" variant="tonal" label>对话</v-chip>
       </div>
     </div>
   </button>

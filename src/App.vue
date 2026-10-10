@@ -51,10 +51,10 @@ watch(
 
 onMounted(async () => {
   if (settings.hasCredentials) {
-    const ok = await settings.testConnection();
+    const ok = await settings.connect();
     if (ok) {
       await chat.loadContacts();
-      chat.startPolling();
+      chat.startPolling(settings.settings.pollIntervalSec * 1000);
     }
   }
   // Desktop: run in the background (hide instead of quitting) on close.

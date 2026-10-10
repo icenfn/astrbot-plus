@@ -1,25 +1,24 @@
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
-import type { AiFriend, ChatMessage, ChatTarget, GroupChat } from "@/api/types";
+import type { AiFriend, BotInfo, ChatMessage, ChatTarget, DialogRow, GroupChat } from "@/api/types";
+import type { PlusSocket } from "@/api/socket";
 import { useSettingsStore } from "./settings";
 
-type ChatKind = "friend" | "group";
+type ChatKind = "dialog" | "friend" | "group";
 
-/** Messages + per-participant session state for one chat surface. */
+/** Messages + state for one chat surface. */
 interface Thread {
   messages: ChatMessage[];
   busy: boolean;
   loaded: boolean;
   updatedAt: number;
   lastMessage?: string;
-  /** participantId -> AstrBot session id (independent context per AI). */
+  /** participantId -> the Webchat session id backing that participant. */
   sessions: Record<string, string>;
-  /** participantId -> AstrBot conversation id. */
-  conversations: Record<string, string>;
 }
 
 function emptyThread(): Thread {
-  return { messages: [], busy: false, loaded: true, updatedAt: 0, sessions: {}, conversations: {} };
+  return { messages: [], busy: false, loaded: true, updatedAt: 0, sessions: {} };
 }
 
 function uid(prefix: string): string {
@@ -28,17 +27,6 @@ function uid(prefix: string): string {
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
-}
-
-/**
- * AstrBot's `waking_check` stage strips a single leading wake-prefix (default
- * "/") from every inbound message before it reaches the pipeline / LLM. A user
- * who literally types "/xxx" would therefore have the leading slash swallowed
- * and the AI only ever sees "xxx". Doubling the leading slash escapes it: the
- * server removes exactly one and the model receives the original "/xxx".
- */
-function escapeLeadingSlash(text: string): string {
-  return text.startsWith("/") ? `/${text}` : text;
 }
 
 function loadJson<T>(key: string, fallback: T): T {
@@ -58,43 +46,37 @@ function saveJson(key: string, value: unknown): void {
   }
 }
 
-/**
- * WebChat UMO scheme used by AstrBot+.
- *
- *  - private (friend) chat : `webchat:FriendMessage:<friendId>`
- *  - group chat member     : `webchat:GroupMessage:<groupId>:<friendId>`
- *
- * Every group member gets its own UMO (and its own session id), so the AI
- * participants in a group never share a session context.
- */
-export function friendUmo(friendId: string): string {
-  return `webchat:FriendMessage:${friendId}`;
-}
-
-export function groupMemberUmo(groupId: string, friendId: string): string {
-  return `webchat:GroupMessage:${groupId}:${friendId}`;
-}
-
-/** How often the friend/group registry is refreshed from the companion plugin. */
+/** How often the bot / dialog / group lists are refreshed from the plugin. */
 const POLL_INTERVAL = 60000;
 
 export const useChatStore = defineStore("chat", () => {
   const settings = useSettingsStore();
 
-  const friends = ref<AiFriend[]>(loadJson<AiFriend[]>("astrbot-plus.friends", []));
+  /**
+   * Bots created in the AstrBot WebUI ("创建机器人" page) — surfaced as 「AI 好友」.
+   * Pulled from the server, cached locally.
+   */
+  const bots = ref<BotInfo[]>(loadJson<BotInfo[]>("astrbot-plus.bots", []));
+  /**
+   * Webchat conversations — surfaced as 「对话」. One bot ↔ one dialog.
+   * Pulled from the server, cached locally.
+   */
+  const dialogs = ref<DialogRow[]>(loadJson<DialogRow[]>("astrbot-plus.dialogs", []));
+  /** Group chats are kept as a local-only feature (reserved, not developed yet). */
   const groups = ref<GroupChat[]>(loadJson<GroupChat[]>("astrbot-plus.groups", []));
   const threads = ref<Record<string, Thread>>(
     loadJson<Record<string, Thread>>("astrbot-plus.threads", {}),
   );
   const unread = ref<Record<string, number>>(loadJson<Record<string, number>>("astrbot-plus.unread", {}));
 
-  watch(friends, (v) => saveJson("astrbot-plus.friends", v), { deep: true });
+  watch(bots, (v) => saveJson("astrbot-plus.bots", v), { deep: true });
+  watch(dialogs, (v) => saveJson("astrbot-plus.dialogs", v), { deep: true });
   watch(groups, (v) => saveJson("astrbot-plus.groups", v), { deep: true });
   watch(threads, (v) => saveJson("astrbot-plus.threads", v), { deep: true });
   watch(unread, (v) => saveJson("astrbot-plus.unread", v), { deep: true });
 
   const activeKey = ref("");
-  const filter = ref<"all" | "friend" | "group">("all");
+  const filter = ref<"all" | "dialog" | "friend" | "group">("all");
   const search = ref("");
   const loadingContacts = ref(false);
   const contactsError = ref("");
@@ -109,22 +91,60 @@ export const useChatStore = defineStore("chat", () => {
     return threads.value[key];
   }
 
-  /** Unified list of friend + group rows for the chat list. */
+  /** AI friends are the WebUI bots, exposed in the shape the UI expects. */
+  const friends = computed<AiFriend[]>(() =>
+    bots.value.map((b) => ({
+      id: b.id,
+      name: b.name || b.id,
+      avatarSeed: b.name || b.id,
+      createdAt: 0,
+    })),
+  );
+
+  function botName(botId?: string): string {
+    if (!botId) return "";
+    return bots.value.find((b) => b.id === botId)?.name || "";
+  }
+
+  /** Unified list of dialog + friend(bot) + group rows for the chat list. */
   const contacts = computed<ChatTarget[]>(() => {
     const list: ChatTarget[] = [];
-    for (const f of friends.value) {
-      const t = threads.value[keyOf("friend", f.id)];
+
+    // 「对话」: Webchat conversations.
+    for (const d of dialogs.value) {
+      const t = threads.value[keyOf("dialog", d.id)];
+      const bot = bots.value.find((b) => b.id === d.botId);
+      const name = d.title || bot?.name || "新对话";
+      list.push({
+        kind: "dialog",
+        id: d.id,
+        displayName: name,
+        avatarSeed: name,
+        updatedAt: t?.updatedAt ?? d.updatedAt ?? 0,
+        lastMessage: t?.lastMessage,
+        messageCount: t?.messages.length ?? 0,
+        dialog: d,
+        bot,
+      });
+    }
+
+    // 「AI 好友」: bots created in the AstrBot WebUI.
+    for (const b of bots.value) {
+      const t = threads.value[keyOf("friend", b.id)];
       list.push({
         kind: "friend",
-        id: f.id,
-        displayName: f.name,
-        avatarSeed: f.avatarSeed || f.name,
+        id: b.id,
+        displayName: b.name || b.id,
+        avatarSeed: b.name || b.id,
         updatedAt: t?.updatedAt ?? 0,
         lastMessage: t?.lastMessage,
         messageCount: t?.messages.length ?? 0,
-        friend: f,
+        bot: b,
+        friend: friends.value.find((f) => f.id === b.id),
       });
     }
+
+    // 「群聊」: reserved feature.
     for (const g of groups.value) {
       const t = threads.value[keyOf("group", g.id)];
       const members = g.memberIds
@@ -153,7 +173,8 @@ export const useChatStore = defineStore("chat", () => {
       .sort((a, b) => b.updatedAt - a.updatedAt);
   });
 
-  const friendCount = computed(() => friends.value.length);
+  const friendCount = computed(() => bots.value.length);
+  const dialogCount = computed(() => dialogs.value.length);
   const groupCount = computed(() => groups.value.length);
   const totalUnread = computed(() => Object.values(unread.value).reduce((s, n) => s + n, 0));
 
@@ -178,7 +199,6 @@ export const useChatStore = defineStore("chat", () => {
     unread.value[key] = Math.max(1, unread.value[key] ?? 0);
   }
 
-  /** Increment the unread counter (a genuinely new incoming message). */
   function bumpUnread(key: string): void {
     unread.value[key] = (unread.value[key] ?? 0) + 1;
   }
@@ -188,64 +208,33 @@ export const useChatStore = defineStore("chat", () => {
     markRead(activeKey.value);
   }
 
-  // --- AI friends -----------------------------------------------------------
+  // --- Dialogs (Webchat conversations) -------------------------------------
 
-  async function addFriend(payload: {
-    name: string;
-    configId?: string;
-    personaId?: string;
-  }): Promise<AiFriend> {
-    const friend: AiFriend = {
-      id: uid("f"),
-      name: payload.name.trim() || "AI 好友",
-      configId: payload.configId?.trim() || undefined,
-      personaId: payload.personaId?.trim() || undefined,
-      avatarSeed: payload.name.trim() || "AI",
-      createdAt: Date.now(),
-    };
-    friends.value.push(friend);
-    // Best-effort: mirror the friend to the companion plugin when reachable.
-    try {
-      const client = settings.buildClient();
-      await client.plusCreateUser({
-        id: friend.id,
-        name: friend.name,
-        configId: friend.configId,
-        personaId: friend.personaId,
-      });
-    } catch {
-      /* offline / plugin missing – local copy is authoritative */
-    }
-    return friend;
+  async function addDialog(botId?: string): Promise<DialogRow> {
+    const dialog = await settings.getSocket().createDialog(botId);
+    dialogs.value = [...dialogs.value.filter((d) => d.id !== dialog.id), dialog];
+    return dialog;
   }
 
-  async function removeFriend(id: string): Promise<void> {
-    friends.value = friends.value.filter((f) => f.id !== id);
-    // Drop the friend from any group it belonged to.
-    for (const g of groups.value) g.memberIds = g.memberIds.filter((m) => m !== id);
-    delete threads.value[keyOf("friend", id)];
-    delete unread.value[keyOf("friend", id)];
-    if (activeKey.value === keyOf("friend", id)) activeKey.value = "";
-    const client = settings.buildClient();
-    // Delete the matching server-side AstrBot conversation so the local and the
-    // server histories stay in sync (otherwise the messages linger on the server
-    // and later resurface, which was the "删除不同步" bug).
-    try {
-      await client.deleteConversationsByUmo([friendUmo(id)]);
-    } catch {
-      /* best-effort */
-    }
-    try {
-      await client.plusDeleteUser(id);
-    } catch {
-      /* best-effort */
-    }
+  /** Return the dialog bound to a bot, creating it on first use (1 bot ↔ 1 dialog). */
+  async function ensureBotDialog(bot: BotInfo): Promise<DialogRow> {
+    const existing = dialogs.value.find((d) => d.botId === bot.id);
+    if (existing) return existing;
+    return addDialog(bot.id);
   }
 
-  // --- Group chats ----------------------------------------------------------
+  async function removeDialog(id: string): Promise<void> {
+    await settings.getSocket().deleteDialog(id);
+    dialogs.value = dialogs.value.filter((d) => d.id !== id);
+    delete threads.value[keyOf("dialog", id)];
+    delete unread.value[keyOf("dialog", id)];
+    if (activeKey.value === keyOf("dialog", id)) activeKey.value = "";
+  }
+
+  // --- Groups (reserved feature, local-only) -------------------------------
 
   async function createGroup(payload: { name: string; memberIds: string[] }): Promise<GroupChat | null> {
-    const memberIds = payload.memberIds.filter((id) => friends.value.some((f) => f.id === id));
+    const memberIds = payload.memberIds.filter((id) => bots.value.some((b) => b.id === id));
     if (memberIds.length < 2) return null;
     const group: GroupChat = {
       id: uid("g"),
@@ -255,73 +244,36 @@ export const useChatStore = defineStore("chat", () => {
       createdAt: Date.now(),
     };
     groups.value.push(group);
-    try {
-      await settings.buildClient().plusCreateGroup({ id: group.id, name: group.name, memberIds });
-    } catch {
-      /* best-effort */
-    }
     return group;
   }
 
   async function removeGroup(id: string): Promise<void> {
-    const group = groups.value.find((g) => g.id === id);
     groups.value = groups.value.filter((g) => g.id !== id);
     delete threads.value[keyOf("group", id)];
     delete unread.value[keyOf("group", id)];
     if (activeKey.value === keyOf("group", id)) activeKey.value = "";
-    const client = settings.buildClient();
-    // Each group member keeps its own UMO / conversation — delete them all so the
-    // server side is cleaned up together with the local thread.
-    try {
-      const umos = (group?.memberIds ?? []).map((m) => groupMemberUmo(id, m));
-      if (umos.length) await client.deleteConversationsByUmo(umos);
-    } catch {
-      /* best-effort */
-    }
-    try {
-      await client.plusDeleteGroup(id);
-    } catch {
-      /* best-effort */
-    }
   }
 
   function memberName(groupId: string, memberId: string): string {
     const g = groups.value.find((x) => x.id === groupId);
     if (!g) return memberId;
-    return friends.value.find((f) => f.id === memberId)?.name || memberId;
+    return bots.value.find((b) => b.id === memberId)?.name || memberId;
   }
 
-  // --- Registry sync (companion plugin) ------------------------------------
+  // --- Registry sync (companion plugin over Socket.io) ---------------------
 
-  async function loadContacts(_opts: { detectNew?: boolean } = {}): Promise<void> {
-    if (!settings.hasCredentials) return;
+  async function loadContacts(): Promise<void> {
+    if (!settings.connected) return;
     loadingContacts.value = true;
     contactsError.value = "";
     try {
-      const client = settings.buildClient();
-      const [users, grps] = await Promise.all([
-        client.plusListUsers().catch(() => null),
-        client.plusListGroups().catch(() => null),
+      const socket = settings.getSocket();
+      const [botList, dialogList] = await Promise.all([
+        socket.listBots().catch(() => null),
+        socket.listDialogs().catch(() => null),
       ]);
-      if (Array.isArray(users) && users.length) {
-        friends.value = users.map((u) => ({
-          id: u.id || uid("f"),
-          name: u.name || "AI 好友",
-          configId: u.configId,
-          personaId: u.personaId,
-          avatarSeed: u.avatarSeed || u.name || "AI",
-          createdAt: u.createdAt || Date.now(),
-        }));
-      }
-      if (Array.isArray(grps) && grps.length) {
-        groups.value = grps.map((g) => ({
-          id: g.id || uid("g"),
-          name: g.name || "群聊",
-          memberIds: Array.isArray(g.memberIds) ? g.memberIds : [],
-          avatarSeed: g.avatarSeed || g.name || "群聊",
-          createdAt: g.createdAt || Date.now(),
-        }));
-      }
+      if (Array.isArray(botList)) bots.value = botList;
+      if (Array.isArray(dialogList)) dialogs.value = dialogList;
     } catch (e) {
       contactsError.value = errMsg(e);
     } finally {
@@ -349,11 +301,45 @@ export const useChatStore = defineStore("chat", () => {
 
   // --- Messaging ------------------------------------------------------------
 
-  /**
-   * Send a message in the active chat. In a group the text fans out to every
-   * member concurrently, and each member keeps its OWN session/conversation so
-   * the AIs never share a context.
-   */
+  function pushAssistant(thread: Thread, senderId: string, senderName?: string): number {
+    thread.messages.push({
+      role: "assistant",
+      text: "",
+      created_at: new Date().toISOString(),
+      streaming: true,
+      senderId,
+      senderName,
+    });
+    // Return the index; callers address the bubble through the reactive array so
+    // streamed deltas re-render (a raw object reference would bypass Vue's proxy).
+    return thread.messages.length - 1;
+  }
+
+  function streamChat(
+    socket: PlusSocket,
+    payload: { sessionId?: string; botId?: string; text: string },
+    bubble: ChatMessage,
+  ): Promise<string> {
+    bubble.streaming = true;
+    return new Promise<string>((resolve, reject) => {
+      socket.sendChat(payload, {
+        onDelta: (_d, full) => {
+          bubble.text = full;
+        },
+        onDone: (full) => {
+          if (!bubble.text) bubble.text = full || "(空回复)";
+          resolve(bubble.text);
+        },
+        onError: (err) => reject(err),
+      });
+    });
+  }
+
+  function failBubble(bubble: ChatMessage, e: unknown): void {
+    bubble.error = true;
+    bubble.text = `发送失败：${errMsg(e)}`;
+  }
+
   async function sendMessage(text: string): Promise<void> {
     const target = activeTarget.value;
     const body = text.trim();
@@ -365,130 +351,85 @@ export const useChatStore = defineStore("chat", () => {
     thread.updatedAt = Date.now();
     thread.lastMessage = body;
 
-    const client = settings.buildClient();
-    // Escape a literal leading "/" so the server's wake-prefix stripping does not
-    // swallow it before the LLM sees the message.
-    const serverText = escapeLeadingSlash(body);
-
-    if (target.kind === "friend") {
-      const friend = target.friend!;
-      const assistant: ChatMessage = {
-        role: "assistant",
-        text: "",
-        created_at: new Date().toISOString(),
-        streaming: true,
-        senderId: friend.id,
-        senderName: friend.name,
-      };
-      thread.messages.push(assistant);
-      // Address the assistant bubble THROUGH the reactive array. Mutating the raw
-      // `assistant` object captured above would bypass Vue's proxy, so the bubble
-      // would never re-render and the streamed reply stayed invisible — the root
-      // cause of "客户端给 AI 发送消息一直没有回应"（服务端其实已回应）.
-      const m = () => thread.messages[thread.messages.length - 1];
-      thread.busy = true;
-      try {
-        await client.chatStream(
-          {
-            username: friendUmo(friend.id),
-            message: serverText,
-            sessionId: thread.sessions[friend.id],
-            conversationId: thread.conversations[friend.id],
-            platformId: "webchat",
-          },
-          {
-            onSessionId: (sid) => {
-              thread.sessions[friend.id] = sid;
-            },
-            onDelta: (_d, full) => {
-              m().text = full;
-            },
-            onTokens: (tk) => {
-              m().tokens = tk;
-            },
-          },
-        );
-        if (!m().text) m().text = "(空回复)";
-      } catch (e) {
-        m().error = true;
-        m().text = `发送失败：${errMsg(e)}`;
-      } finally {
-        m().streaming = false;
-        thread.busy = false;
-        thread.updatedAt = Date.now();
-      }
-      // If the user has since switched to another chat, flag this reply as unread
-      // so the list shows a badge for it.
-      if (activeKey.value !== key && m().text && !m().error) bumpUnread(key);
+    let socket: PlusSocket;
+    try {
+      socket = settings.getSocket();
+    } catch (e) {
+      const idx = pushAssistant(thread, target.id, target.displayName);
+      failBubble(thread.messages[idx], e);
       return;
     }
 
-    // Group chat: independent context per member.
+    if (target.kind === "dialog") {
+      const dialog = target.dialog!;
+      const idx = pushAssistant(thread, dialog.botId || dialog.id, target.displayName);
+      thread.busy = true;
+      try {
+        await streamChat(socket, { sessionId: dialog.id, text: body }, thread.messages[idx]);
+      } catch (e) {
+        failBubble(thread.messages[idx], e);
+      } finally {
+        thread.messages[idx].streaming = false;
+        thread.busy = false;
+        thread.updatedAt = Date.now();
+      }
+      if (activeKey.value !== key && thread.messages[idx].text && !thread.messages[idx].error) {
+        bumpUnread(key);
+      }
+      return;
+    }
+
+    if (target.kind === "friend") {
+      const bot = target.bot!;
+      const idx = pushAssistant(thread, bot.id, bot.name);
+      thread.busy = true;
+      try {
+        const dialog = await ensureBotDialog(bot);
+        await streamChat(socket, { sessionId: dialog.id, botId: bot.id, text: body }, thread.messages[idx]);
+      } catch (e) {
+        failBubble(thread.messages[idx], e);
+      } finally {
+        thread.messages[idx].streaming = false;
+        thread.busy = false;
+        thread.updatedAt = Date.now();
+      }
+      if (activeKey.value !== key && thread.messages[idx].text && !thread.messages[idx].error) {
+        bumpUnread(key);
+      }
+      return;
+    }
+
+    // Group chat: fan out to every member, each with its own dialog/session.
     const group = target.group!;
     const members = group.memberIds
-      .map((id) => friends.value.find((f) => f.id === id))
-      .filter((x): x is AiFriend => !!x);
+      .map((id) => bots.value.find((b) => b.id === id))
+      .filter((x): x is BotInfo => !!x);
     thread.busy = true;
-
     let replied = 0;
-    const jobs = members.map(async (friend) => {
-      const assistant: ChatMessage = {
-        role: "assistant",
-        text: "",
-        created_at: new Date().toISOString(),
-        streaming: true,
-        senderId: friend.id,
-        senderName: friend.name,
-      };
-      thread.messages.push(assistant);
-      // Address this member's bubble through the reactive array (see the 1:1 note
-      // above); each member owns its own index so concurrent group replies all
-      // update independently instead of rendering blank.
-      const idx = thread.messages.length - 1;
-      const m = () => thread.messages[idx];
-      try {
-        await client.chatStream(
-          {
-            username: groupMemberUmo(group.id, friend.id),
-            message: serverText,
-            sessionId: thread.sessions[friend.id],
-            conversationId: thread.conversations[friend.id],
-            platformId: "webchat",
-          },
-          {
-            onSessionId: (sid) => {
-              thread.sessions[friend.id] = sid;
-            },
-            onDelta: (_d, full) => {
-              m().text = full;
-            },
-            onTokens: (tk) => {
-              m().tokens = tk;
-            },
-          },
-        );
-        if (!m().text) m().text = "(空回复)";
-        replied += 1;
-      } catch (e) {
-        m().error = true;
-        m().text = `发送失败：${errMsg(e)}`;
-      } finally {
-        m().streaming = false;
-      }
-    });
-
-    await Promise.all(jobs);
+    await Promise.all(
+      members.map(async (bot) => {
+        const idx = pushAssistant(thread, bot.id, bot.name);
+        try {
+          const dialog = await ensureBotDialog(bot);
+          await streamChat(socket, { sessionId: dialog.id, botId: bot.id, text: body }, thread.messages[idx]);
+          replied += 1;
+        } catch (e) {
+          failBubble(thread.messages[idx], e);
+        } finally {
+          thread.messages[idx].streaming = false;
+        }
+      }),
+    );
     thread.busy = false;
     thread.updatedAt = Date.now();
-    thread.lastMessage = body;
-    // Same as the 1:1 case: badge the thread if the user moved on while the group
-    // was answering.
     if (activeKey.value !== key && replied > 0) bumpUnread(key);
   }
 
   return {
-    friends,
+    bots,
+    dialogs,
     groups,
+    friends,
     contacts,
     filteredContacts,
     activeKey,
@@ -499,9 +440,17 @@ export const useChatStore = defineStore("chat", () => {
     unread,
     totalUnread,
     friendCount,
+    dialogCount,
     groupCount,
     loadingContacts,
     contactsError,
+    addDialog,
+    ensureBotDialog,
+    removeDialog,
+    removeGroup,
+    createGroup,
+    memberName,
+    botName,
     loadContacts,
     startPolling,
     stopPolling,
@@ -510,14 +459,7 @@ export const useChatStore = defineStore("chat", () => {
     markUnread,
     bumpUnread,
     unreadOf,
-    addFriend,
-    removeFriend,
-    createGroup,
-    removeGroup,
-    memberName,
     clearThread,
     sendMessage,
-    friendUmo,
-    groupMemberUmo,
   };
 });

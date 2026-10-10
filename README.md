@@ -11,7 +11,7 @@
   [![Vuetify](https://img.shields.io/badge/Vuetify-4.x-1867C0?logo=vuetify&logoColor=white)](https://vuetifyjs.com/)
   [![Release](https://github.com/icenfn/astrbot-plus/actions/workflows/release.yml/badge.svg)](https://github.com/icenfn/astrbot-plus/actions/workflows/release.yml)
 
-  基于 Tauri 2 + Vue 3 + Vuetify 4 + Pinia + VueUse，通过 AstrBot OpenAPI 通信。
+  基于 Tauri 2 + Vue 3 + Vuetify 4 + Pinia + VueUse，通过 Socket.io 与配套插件通信。
   支持 **桌面端（Windows / macOS / Linux）** 与 **Android**。
 
 </div>
@@ -25,10 +25,11 @@ Telegram 重新设计，采用 Vuetify 4 组件库构建。当前版本聚焦于
 
 ### 已实现功能
 
-- 💬 **AI 好友（私聊）**：每个 AI 好友映射一套对话配置 / 人格，拥有独立的会话上下文，流式（SSE）展示回复
+- 💬 **对话（Webchat）**：新建对话直接与 AstrBot 的 Webchat 沟通，流式展示回复；一个机器人对应一段对话
+- 🤖 **AI 好友（私聊）**：来自 AstrBot WebUI「创建机器人」页面的机器人，拥有独立的会话上下文，流式展示回复
 - 👥 **群聊**：把**多个 AI 好友拉进同一个群聊**；发送消息时文本同时发给每位成员，且**群内每位 AI 拥有独立会话上下文**（独立 UMO / session），互不串扰
-- 🗂️ **统一聊天列表**：AI 好友与群聊统一展示，支持按「全部 / AI 好友 / 群聊」筛选与搜索
-- 🧩 **配套插件**：[astrbot-plugin-plus](https://github.com/icenfn/astrbot-plugin-plus) 提供 AI 好友与群聊的注册表，联网时自动同步，离线可用本地数据
+- 🗂️ **统一聊天列表**：对话、AI 好友与群聊统一展示，支持按「全部 / 对话 / AI 好友 / 群聊」筛选与搜索
+- 🔌 **Socket.io 通信**：[astrbot-plugin-plus](https://github.com/icenfn/astrbot-plugin-plus) 提供 Socket.io 服务端（对外只暴露一个端口），机器人 / 对话列表由服务端拉取、客户端本地缓存，联网时自动同步，离线可用本地数据
 - 📜 **历史记录**：显示历史消息（自动剥离系统注入的 `<system_reminder>`）
 - ⬇️ **自动滚动到底部**：跟随最新消息；上翻历史时显示悬浮「向下箭头」按钮，点击回到底部并自动隐藏
 - 🔔 **系统通知**：收到回复时调用系统通知，可设置为「仅后台通知」
@@ -66,23 +67,22 @@ Telegram 重新设计，采用 Vuetify 4 组件库构建。当前版本聚焦于
 读取 `CHANGELOG.md` 的最新版本号，三端并行构建后在**同一个工作流**里汇总创建
 GitHub Release。
 
-## 🔌 依赖的 AstrBot OpenAPI
+## 🔌 通信（Socket.io）
 
-AstrBot+ 仅使用 AstrBot 官方 HTTP API（`Authorization: Bearer abk_xxx`）。参考文档
-<https://docs.astrbot.app/dev/openapi.html>。
+AstrBot+ 通过 **Socket.io** 与配套插件 [astrbot-plugin-plus](https://github.com/icenfn/astrbot-plugin-plus)
+通信。插件单独监听一个端口（默认 `6199`），对外只暴露这一个端口；客户端在设置中填写
+「插件服务器地址」与「访问密钥（API Key）」，握手时以 `auth.token` 完成鉴权。
 
-| 用途 | 接口 |
+| 用途 | Socket.io 事件 |
 | --- | --- |
-| 发送消息并流式获取回复 | `POST /api/v1/chat` |
-| 会话列表 | `GET /api/v1/conversations` |
-| 单个会话历史 | `GET /api/v1/conversations/{cid}?user_id=...` |
-| 机器人列表 | `GET /api/v1/im/bots` |
-| 提供商列表 | `GET /api/v1/providers` |
-| AI 好友注册表 | `GET/POST/DELETE /api/plugin/astrbot_plugin_plus/users` |
-| 群聊注册表 | `GET/POST/DELETE /api/plugin/astrbot_plugin_plus/groups` |
+| 心跳 / 能力信息 | `ping` / `config` |
+| 机器人列表（WebUI「创建机器人」） | `bots:list` |
+| 对话（Webchat 会话）列表 / 新建 / 删除 / 历史 | `dialogs:list` / `dialogs:create` / `dialogs:delete` / `dialogs:history` |
+| 发送消息并流式获取回复 | `chat:send` → `chat:delta` / `chat:done` / `chat:error` |
+| AI 好友 / 群聊注册表 | `registry:list` / `registry:*:upsert` / `registry:*:delete` |
 
-> 需要先在 AstrBot 控制台「开发者 / API Key」创建一个包含 chat、im 等 scope 的
-> API Key，然后在客户端「设置」中填入服务器地址与 API Key。
+> 插件侧会以你配置的 `astrbot_api_key` 调用 AstrBot 自身的接口（机器人配置、Webchat 会话、
+> 流式聊天）。参考文档 <https://docs.astrbot.app/>。
 
 ## 🚀 开发
 
@@ -140,7 +140,7 @@ astrbot-plus/
 ├── android/debug.keystore       # 内置稳定 debug 签名
 ├── .github/workflows/release.yml# 三端合并构建 + 发布
 ├── src/
-│   ├── api/                     # AstrBot API 客户端（含 SSE 流式解析）+ 类型
+│   ├── api/                     # Socket.io 客户端（socket.ts）+ 类型
 │   ├── stores/                  # settings / chat（Pinia）
 │   ├── composables/             # useNotify / useWindow / usePlatform
 │   ├── components/              # 侧栏、底部 Tab、会话列表、聊天窗口、气泡、输入框…
@@ -172,8 +172,8 @@ npx tauri icon logo.png
 
 ## 🔒 隐私
 
-- 所有凭据（服务器地址、API Key）仅保存在本地（浏览器 `localStorage`）。
-- 请求通过 Tauri HTTP 插件直接发往你配置的 AstrBot 服务器，不经过任何第三方。
+- 所有凭据（插件服务器地址、访问密钥）仅保存在本地（浏览器 `localStorage`）。
+- Socket.io 连接直接发往你配置的插件服务器，不经过任何第三方。
 
 ## 📄 许可证
 

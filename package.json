@@ -1,7 +1,7 @@
 {
   "name": "astrbot-plus",
   "private": true,
-  "version": "0.2.3",
+  "version": "0.3.0",
   "type": "module",
   "description": "AstrBot+ — a modern client for AstrBot (Tauri + Vue 3 + Vuetify 4)",
   "author": "astrbot-plus contributors",
@@ -42,6 +42,7 @@
     "marked-highlight": "^2.2.1",
     "marked-katex-extension": "^5.1.2",
     "pinia": "^4.0.3",
+    "socket.io-client": "^4.8.1",
     "vue": "^3.5.43",
     "vue-router": "^4.5.0",
     "vuetify": "^4.2.3"

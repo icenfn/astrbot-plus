@@ -80,6 +80,9 @@ const subtitle = computed(() => {
     const names = (t.members || []).map((m) => m.name).join("、");
     return `群聊 · ${t.members?.length ?? 0} 个 AI${names ? `（${names}）` : ""}`;
   }
+  if (t.kind === "dialog") {
+    return t.bot?.name ? `对话 · ${t.bot.name}` : "对话 · Webchat";
+  }
   return "AI 好友 · 私聊";
 });
 
@@ -195,8 +198,8 @@ onBeforeUnmount(() => {
     <div v-else class="placeholder">
       <div class="placeholder-inner">
         <img src="/logo.svg" alt="AstrBot+" width="84" height="84" />
-        <h3 class="mt-3">选择一位 AI 好友或群聊开始聊天</h3>
-        <p class="text-medium-emphasis">支持与 AI 私聊，或把多个 AI 拉进同一个群聊</p>
+        <h3 class="mt-3">选择一段对话、AI 好友或群聊开始聊天</h3>
+        <p class="text-medium-emphasis">「对话」直连 AstrBot Webchat，「AI 好友」来自 WebUI 创建的机器人</p>
       </div>
     </div>
   </section>
