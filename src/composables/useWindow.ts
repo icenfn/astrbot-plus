@@ -2,7 +2,7 @@
  * Background-running window helpers: close-to-tray / minimize-to-tray and
  * auto-start. All are no-ops in the browser preview.
  */
-import { isTauri } from "@/api/client";
+import { isTauri } from "@/api/env";
 
 type CloseHandler = (event: { preventDefault: () => void }) => void;
 

@@ -1,6 +1,6 @@
 import { computed } from "vue";
 import { useMediaQuery } from "@vueuse/core";
-import { isTauri } from "@/api/client";
+import { isTauri } from "@/api/env";
 
 /**
  * Layout platform detection.

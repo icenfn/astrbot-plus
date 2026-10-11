@@ -1,4 +1,4 @@
-import { isTauri } from "@/api/client";
+import { isTauri } from "@/api/env";
 
 /**
  * Cross-environment desktop notifications.

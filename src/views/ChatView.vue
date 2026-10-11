@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
@@ -14,10 +14,8 @@ const { connected } = storeToRefs(settings);
 const { activeKey } = storeToRefs(chat);
 const { isMobile } = usePlatform();
 
-// Mobile shows a single pane: the list, or the open conversation.
+// Mobile shows a single pane: the list, or the open Agent.
 const showListOnMobile = computed(() => !activeKey.value);
-
-import { computed } from "vue";
 const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
 
 onMounted(async () => {
@@ -52,7 +50,7 @@ onMounted(async () => {
         <img src="/logo.svg" alt="AstrBot+" width="96" height="96" />
         <h1 class="text-h5 mt-4">欢迎使用 AstrBot+</h1>
         <p class="text-medium-emphasis mt-2 text-center">
-          连接到 AstrBot+ 配套插件，与 AstrBot Webchat 对话，或和 WebUI 里创建的 AI 好友聊天。
+          连接到 AstrBot+ 配套插件，即可与 WebUI「创建机器人」里创建的 Agent 对话。
         </p>
         <ConnectionDialog class="mt-4" />
       </div>

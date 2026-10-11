@@ -1,99 +1,87 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref } from "vue";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "@/stores/chat";
-import type { ChatTarget } from "@/api/types";
-import ContactItem from "./ContactItem.vue";
-import NewDialogDialog from "./NewDialogDialog.vue";
-import GroupDialog from "./GroupDialog.vue";
+import type { AgentRow } from "@/api/types";
+import AstrbotAvatar from "./AstrbotAvatar.vue";
 
 const chat = useChatStore();
-const { activeKey, filteredContacts, loadingContacts, contactsError, filter, search, contacts } =
-  storeToRefs(chat);
+const { activeKey, filteredAgents, loadingContacts, contactsError, search, agents } = storeToRefs(chat);
 
-const filters = [
-  { label: "全部", value: "all" as const, icon: "mdi-format-list-bulleted" },
-  { label: "对话", value: "dialog" as const, icon: "mdi-chat-outline" },
-  { label: "AI 好友", value: "friend" as const, icon: "mdi-account" },
-  { label: "群聊", value: "group" as const, icon: "mdi-account-group" },
-];
+const filters = [{ label: "Agent", value: "agent" as const, icon: "mdi-robot" }];
 
-function isActive(t: ChatTarget): boolean {
-  return `${t.kind}:${t.id}` === activeKey.value;
+function isActive(a: AgentRow): boolean {
+  return a.id === activeKey.value;
 }
 
-// --- Add menu (dialog / group) ----------------------------------------------
-const addMenuOpen = ref(false);
-const dialogDialog = ref(false);
-const groupDialog = ref(false);
-
-function openNewDialog() {
-  addMenuOpen.value = false;
-  dialogDialog.value = true;
-}
-function openGroupDialog() {
-  addMenuOpen.value = false;
-  groupDialog.value = true;
+function unreadLabel(a: AgentRow): string {
+  const n = chat.unreadOf(a.id);
+  if (n <= 0) return "";
+  return n > 99 ? "99+" : String(n);
 }
 
-// --- Action sheet (long-press menu) ------------------------------------------
-const menuTarget = ref<ChatTarget | null>(null);
+function subtitle(a: AgentRow): string {
+  return (a.lastMessage || "").replace(/\s+/g, " ").trim() || "开始和这个 Agent 对话吧";
+}
+
+function relTime(ts: number): string {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+// --- Long-press (touch) / right-click (desktop) → read-state menu -------------
+const menuTarget = ref<AgentRow | null>(null);
 const menuOpen = ref(false);
-const confirmOpen = ref(false);
-const deleting = ref(false);
-const deleteError = ref("");
+const menuUnread = computed(() => (menuTarget.value ? chat.unreadOf(menuTarget.value.id) : 0));
 
-const menuUnread = computed(() =>
-  menuTarget.value ? chat.unreadOf(`${menuTarget.value.kind}:${menuTarget.value.id}`) : 0,
-);
-
-const deletable = computed(() => menuTarget.value?.kind === "dialog" || menuTarget.value?.kind === "group");
-
-const deleteLabel = computed(() =>
-  menuTarget.value?.kind === "dialog" ? "删除对话" : "解散群聊",
-);
-
-function openMenu(t: ChatTarget) {
-  menuTarget.value = t;
+function openMenu(a: AgentRow) {
+  menuTarget.value = a;
   menuOpen.value = true;
 }
 
-function closeMenu() {
+function onMarkRead() {
+  if (menuTarget.value) chat.markRead(menuTarget.value.id);
   menuOpen.value = false;
 }
 
-function onMarkRead() {
-  if (menuTarget.value) chat.markRead(`${menuTarget.value.kind}:${menuTarget.value.id}`);
-  closeMenu();
-}
-
 function onMarkUnread() {
-  if (menuTarget.value) chat.markUnread(`${menuTarget.value.kind}:${menuTarget.value.id}`);
-  closeMenu();
+  if (menuTarget.value) chat.markUnread(menuTarget.value.id);
+  menuOpen.value = false;
 }
 
-function askDelete() {
-  closeMenu();
-  deleteError.value = "";
-  confirmOpen.value = true;
+let pressTimer: number | undefined;
+let longPressed = false;
+function startPress(a: AgentRow) {
+  longPressed = false;
+  clearPress();
+  pressTimer = window.setTimeout(() => {
+    longPressed = true;
+    openMenu(a);
+  }, 480);
 }
-
-async function confirmDelete() {
-  const t = menuTarget.value;
-  if (!t) return;
-  deleting.value = true;
-  deleteError.value = "";
-  try {
-    if (t.kind === "dialog") await chat.removeDialog(t.id);
-    else if (t.kind === "group") await chat.removeGroup(t.id);
-    confirmOpen.value = false;
-    menuTarget.value = null;
-  } catch (e) {
-    deleteError.value = e instanceof Error ? e.message : String(e);
-  } finally {
-    deleting.value = false;
+function clearPress() {
+  if (pressTimer !== undefined) {
+    window.clearTimeout(pressTimer);
+    pressTimer = undefined;
   }
 }
+function onSelect(a: AgentRow) {
+  if (longPressed) {
+    longPressed = false;
+    return;
+  }
+  chat.openAgent(a.id);
+}
+function onContext(e: MouseEvent, a: AgentRow) {
+  e.preventDefault();
+  openMenu(a);
+}
+onBeforeUnmount(clearPress);
 
 async function refresh() {
   await chat.loadContacts();
@@ -114,27 +102,10 @@ async function refresh() {
           title="刷新"
           @click="refresh"
         />
-        <v-menu v-model="addMenuOpen" location="bottom end">
-          <template #activator="{ props }">
-            <v-btn icon="mdi-plus" size="small" variant="text" color="primary" v-bind="props" />
-          </template>
-          <v-list density="compact">
-            <v-list-item
-              prepend-icon="mdi-chat-plus-outline"
-              title="新建对话"
-              @click="openNewDialog"
-            />
-            <v-list-item
-              prepend-icon="mdi-account-multiple-plus"
-              title="新建群聊"
-              @click="openGroupDialog"
-            />
-          </v-list>
-        </v-menu>
       </div>
       <v-text-field
         v-model="search"
-        placeholder="搜索对话、好友或群聊"
+        placeholder="搜索 Agent"
         prepend-inner-icon="mdi-magnify"
         density="compact"
         variant="solo-filled"
@@ -149,8 +120,8 @@ async function refresh() {
           :key="f.value"
           :prepend-icon="f.icon"
           size="small"
-          :variant="filter === f.value ? 'flat' : 'tonal'"
-          :color="filter === f.value ? 'primary' : undefined"
+          variant="flat"
+          color="primary"
           @click="chat.filter = f.value"
         >
           {{ f.label }}
@@ -168,35 +139,53 @@ async function refresh() {
         :text="`无法从插件同步（本地数据仍可用）：${contactsError}`"
       />
 
-      <div v-if="loadingContacts && !contacts.length" class="center">
+      <div v-if="loadingContacts && !agents.length" class="center">
         <v-progress-circular indeterminate color="primary" />
       </div>
 
-      <div v-else-if="!filteredContacts.length" class="empty">
-        <v-icon icon="mdi-chat-plus-outline" size="40" class="mb-2" />
-        <p class="text-medium-emphasis">还没有对话</p>
+      <div v-else-if="!filteredAgents.length" class="empty">
+        <v-icon icon="mdi-robot-outline" size="40" class="mb-2" />
+        <p class="text-medium-emphasis">还没有 Agent</p>
         <p class="text-caption text-medium-emphasis text-center">
-          点击右上角「+」新建对话，与 AstrBot 的 Webchat 沟通；也可以和 WebUI 里创建的机器人聊。
+          请先在 AstrBot WebUI 的「创建机器人」页面创建机器人。
         </p>
       </div>
 
       <div v-else class="items">
-        <ContactItem
-          v-for="c in filteredContacts"
-          :key="`${c.kind}:${c.id}`"
-          :target="c"
-          :active="isActive(c)"
-          :unread="chat.unreadOf(`${c.kind}:${c.id}`)"
-          @select="chat.openTarget($event)"
-          @menu="openMenu($event)"
-        />
+        <button
+          v-for="a in filteredAgents"
+          :key="a.id"
+          class="contact"
+          :class="{ active: isActive(a) }"
+          @click="onSelect(a)"
+          @contextmenu="onContext($event, a)"
+          @touchstart.passive="startPress(a)"
+          @touchend="clearPress"
+          @touchcancel="clearPress"
+          @touchmove="clearPress"
+          @mousedown="startPress(a)"
+          @mouseup="clearPress"
+          @mouseleave="clearPress"
+        >
+          <AstrbotAvatar :name="a.name" :seed="a.avatarSeed" />
+          <div class="meta">
+            <div class="row">
+              <span class="name">{{ a.name }}</span>
+              <span class="time">{{ relTime(a.updatedAt) }}</span>
+            </div>
+            <div class="row">
+              <span class="preview">{{ subtitle(a) }}</span>
+              <span v-if="unreadLabel(a)" class="badge">{{ unreadLabel(a) }}</span>
+            </div>
+          </div>
+        </button>
       </div>
     </div>
 
     <!-- Long-press / right-click action sheet -->
     <v-dialog v-model="menuOpen" max-width="360">
       <v-card>
-        <v-card-title class="menu-title">{{ menuTarget?.displayName }}</v-card-title>
+        <v-card-title class="menu-title">{{ menuTarget?.name }}</v-card-title>
         <v-divider />
         <v-list density="compact">
           <v-list-item
@@ -211,49 +200,9 @@ async function refresh() {
             title="标记为未读"
             @click="onMarkUnread"
           />
-          <v-list-item
-            v-if="deletable"
-            prepend-icon="mdi-delete-outline"
-            :title="deleteLabel"
-            base-color="error"
-            @click="askDelete"
-          />
         </v-list>
       </v-card>
     </v-dialog>
-
-    <!-- Delete confirmation -->
-    <v-dialog v-model="confirmOpen" max-width="360">
-      <v-card>
-        <v-card-title>{{ deleteLabel }}</v-card-title>
-        <v-card-text>
-          <template v-if="menuTarget?.kind === 'dialog'">
-            确定要删除「{{ menuTarget?.displayName }}」吗？该对话的历史记录会一并删除。
-          </template>
-          <template v-else>
-            确定要解散「{{ menuTarget?.displayName }}」吗？群聊记录会被删除，群内 AI 好友本身不受影响。
-          </template>
-          <v-alert
-            v-if="deleteError"
-            type="error"
-            variant="tonal"
-            density="compact"
-            class="mt-3"
-            :text="deleteError"
-          />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="text" @click="confirmOpen = false">取消</v-btn>
-          <v-btn color="error" variant="flat" :loading="deleting" @click="confirmDelete">
-            删除
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
-    <NewDialogDialog v-model="dialogDialog" />
-    <GroupDialog v-model="groupDialog" />
   </section>
 </template>
 
@@ -308,6 +257,70 @@ async function refresh() {
   flex-direction: column;
   align-items: center;
   padding: 48px 20px;
+}
+.contact {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 12px;
+  transition: background 0.12s ease;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.contact:hover {
+  background: rgba(47, 134, 189, 0.1);
+}
+.contact.active {
+  background: rgba(47, 134, 189, 0.2);
+}
+.meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.name {
+  font-weight: 600;
+  font-size: 14.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.time {
+  font-size: 11.5px;
+  opacity: 0.6;
+  flex: 0 0 auto;
+}
+.preview {
+  font-size: 12.5px;
+  opacity: 0.66;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.badge {
+  flex: 0 0 auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: #e53935;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
 }
 .menu-title {
   font-size: 15px;

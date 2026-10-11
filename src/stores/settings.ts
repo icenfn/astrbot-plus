@@ -1,87 +1,122 @@
+/**
+ * Settings store — connection endpoint, appearance and app preferences.
+ *
+ * The client talks to the companion plugin (`astrbot_plugin_plus`) over a single
+ * Socket.io connection, so "connection" here is just the plugin address plus the
+ * optional access key. Everything is persisted to localStorage.
+ */
 import { defineStore } from "pinia";
-import { computed, reactive, ref, shallowRef, watch } from "vue";
-import { usePreferredDark, useStorage } from "@vueuse/core";
+import { computed, ref, watch } from "vue";
+import { useTheme } from "vuetify";
 import { PlusSocket } from "@/api/socket";
-import { isTauri } from "@/api/client";
 
-const STORAGE_KEY = "astrbot-plus.settings";
+export type ThemeMode = "system" | "astrbotDark" | "astrbotLight";
 
-export interface PersistedSettings {
-  /** The companion plugin's dedicated Socket.io endpoint, e.g. http://host:6199 . */
+interface SettingsState {
   socketUrl: string;
-  /** API key sent in the Socket.io handshake to authenticate the client. */
   accessKey: string;
-  theme: "system" | "astrbotDark" | "astrbotLight";
+  theme: ThemeMode;
+  autoStart: boolean;
+  closeToTray: boolean;
+  minimizeToTray: boolean;
   notifyEnabled: boolean;
   notifyOnlyBackground: boolean;
-  minimizeToTray: boolean;
-  closeToTray: boolean;
-  autoStart: boolean;
   pollIntervalSec: number;
 }
 
-const DEFAULT_SETTINGS: PersistedSettings = {
-  // No default server: the user must enter their own endpoint so we never
-  // hard-code or leak a third-party address into the app.
+const STORAGE_KEY = "astrbot-plus.settings";
+
+const DEFAULTS: SettingsState = {
   socketUrl: "",
   accessKey: "",
-  theme: "astrbotDark",
+  theme: "system",
+  autoStart: false,
+  closeToTray: true,
+  minimizeToTray: true,
   notifyEnabled: true,
   notifyOnlyBackground: true,
-  minimizeToTray: true,
-  closeToTray: true,
-  autoStart: false,
-  pollIntervalSec: 20,
+  pollIntervalSec: 10,
 };
 
-export const useSettingsStore = defineStore("settings", () => {
-  const stored = useStorage<PersistedSettings>(STORAGE_KEY, DEFAULT_SETTINGS);
-  const settings = reactive<PersistedSettings>({ ...DEFAULT_SETTINGS, ...stored.value });
+function load(): SettingsState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<SettingsState>) };
+  } catch {
+    /* ignore corrupt storage */
+  }
+  return { ...DEFAULTS };
+}
 
-  /** The live Socket.io connection to the companion plugin. */
-  const socket = shallowRef<PlusSocket | null>(null);
+export const useSettingsStore = defineStore("settings", () => {
+  const settings = ref<SettingsState>(load());
   const connected = ref(false);
   const connecting = ref(false);
-  const lastError = ref<string>("");
+  const lastError = ref("");
 
-  const preferredDark = usePreferredDark();
-  const isDark = computed(() =>
-    settings.theme === "system" ? preferredDark.value : settings.theme === "astrbotDark",
+  let socket: PlusSocket | null = null;
+
+  const hasCredentials = computed(() => !!settings.value.socketUrl.trim());
+
+  // ---- persistence --------------------------------------------------------
+  watch(
+    () => settings.value,
+    (value) => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+      } catch {
+        /* ignore quota errors */
+      }
+    },
+    { deep: true },
   );
 
-  function persist() {
-    stored.value = { ...settings };
-  }
+  // ---- appearance ---------------------------------------------------------
+  const theme = useTheme();
+  const isDark = computed(() => theme.global.current.value.dark);
 
-  watch(settings, persist, { deep: true });
-
-  function buildSocket(): PlusSocket {
-    return new PlusSocket(settings.socketUrl, settings.accessKey);
-  }
-
-  /** Return the live socket or throw — used by callers that require a connection. */
-  function getSocket(): PlusSocket {
-    if (!socket.value || !socket.value.connected) {
-      throw new Error("尚未连接到 AstrBot+ 插件");
+  function applyTheme(): void {
+    const mode = settings.value.theme;
+    if (mode === "system") {
+      const prefersDark =
+        window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true;
+      theme.global.name.value = prefersDark ? "astrbotDark" : "astrbotLight";
+    } else {
+      theme.global.name.value = mode;
     }
-    return socket.value;
+  }
+  watch(() => settings.value.theme, applyTheme, { immediate: true });
+
+  function cycleTheme(): void {
+    const order: ThemeMode[] = ["system", "astrbotDark", "astrbotLight"];
+    const idx = order.indexOf(settings.value.theme);
+    settings.value.theme = order[(idx + 1) % order.length];
   }
 
+  // ---- socket -------------------------------------------------------------
+  function getSocket(): PlusSocket {
+    if (!socket) {
+      socket = new PlusSocket(settings.value.socketUrl, settings.value.accessKey);
+    }
+    return socket;
+  }
+
+  /** (Re)connect to the plugin; rebuilds the socket if the endpoint changed. */
   async function connect(): Promise<boolean> {
+    if (!hasCredentials.value) {
+      lastError.value = "请先填写插件服务器地址";
+      return false;
+    }
     connecting.value = true;
     lastError.value = "";
     try {
-      socket.value?.disconnect();
-      const next = buildSocket();
-      await next.connect();
-      // Verify the handshake really reached the plugin before declaring success.
-      await next.ping();
-      socket.value = next;
+      socket?.disconnect();
+      socket = new PlusSocket(settings.value.socketUrl, settings.value.accessKey);
+      await socket.connect();
+      await socket.ping();
       connected.value = true;
       return true;
     } catch (e) {
-      socket.value?.disconnect();
-      socket.value = null;
       connected.value = false;
       const raw = e instanceof Error ? e.message : String(e);
       // Turn the opaque socket.io "websocket error" into an actionable hint.
@@ -94,36 +129,22 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }
 
-  function disconnect() {
-    socket.value?.disconnect();
-    socket.value = null;
+  function disconnect(): void {
+    socket?.disconnect();
+    socket = null;
     connected.value = false;
   }
 
-  function cycleTheme() {
-    settings.theme = isDark.value ? "astrbotLight" : "astrbotDark";
-  }
-
-  function reset() {
-    Object.assign(settings, DEFAULT_SETTINGS);
-  }
-
-  const hasCredentials = computed(() => !!settings.socketUrl);
-
   return {
     settings,
-    socket,
     connected,
     connecting,
     lastError,
-    isDark,
     hasCredentials,
-    isTauri: isTauri(),
-    buildSocket,
+    isDark,
+    cycleTheme,
     getSocket,
     connect,
     disconnect,
-    cycleTheme,
-    reset,
   };
 });

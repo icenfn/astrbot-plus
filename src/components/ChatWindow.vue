@@ -11,7 +11,7 @@ import MessageComposer from "./MessageComposer.vue";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
-const { activeTarget, activeThread, activeKey } = storeToRefs(chat);
+const { activeAgent, activeThread, activeKey } = storeToRefs(chat);
 const { isMobile } = usePlatform();
 
 const scrollEl = ref<HTMLElement | null>(null);
@@ -19,7 +19,6 @@ const scrollEl = ref<HTMLElement | null>(null);
 /** Whether the view is (still) scrolled to the bottom of the thread. */
 const pinned = ref(true);
 
-/** Track whether the user is reading at the bottom (or has scrolled up). */
 function onMessagesScroll() {
   const el = scrollEl.value;
   if (!el) return;
@@ -27,19 +26,10 @@ function onMessagesScroll() {
 }
 
 /**
- * Scroll the message list to the bottom.
- *
- * `force` jumps regardless of the current position (used when a message is
- * sent, when a different conversation is opened, or on first mount); otherwise
- * the jump only happens while the user is already pinned to the bottom, so
- * reading history is not interrupted by an incoming/streaming message.
- *
- * We jump *instantly* (temporarily overriding `scroll-behavior: smooth`) and
- * then re-assert the position across the next few frames. A single
- * `scrollTop = scrollHeight` on the frame the conversation appears is not
- * enough: the messages (markdown / KaTeX / images) and even the virtual
- * keyboard keep changing the content height for a few hundred milliseconds
- * afterwards, which is exactly why "进入聊天页没有滚到底部" happened.
+ * Scroll the message list to the bottom. `force` jumps regardless of position
+ * (send / open / mount); otherwise only while already pinned to the bottom.
+ * A single scrollTop set is not enough because markdown / images keep changing
+ * the content height for a few hundred ms, so we re-assert across frames.
  */
 async function scrollToBottom(force = false) {
   if (!force && !pinned.value) return;
@@ -49,7 +39,6 @@ async function scrollToBottom(force = false) {
     jumpToEnd();
     requestAnimationFrame(jumpToEnd);
   });
-  // Two delayed passes cover late font / image / markdown layout.
   window.setTimeout(jumpToEnd, 80);
   window.setTimeout(jumpToEnd, 240);
 }
@@ -63,7 +52,6 @@ function jumpToEnd() {
   el.style.scrollBehavior = previous;
 }
 
-/** Floating "jump to bottom" button: shown only while reading history. */
 const showJumpButton = computed(() => !pinned.value);
 
 function jumpToBottom() {
@@ -71,65 +59,42 @@ function jumpToBottom() {
   void scrollToBottom(true);
 }
 
-const isGroup = computed(() => activeTarget.value?.kind === "group");
+const subtitle = computed(() => "Agent");
 
-const subtitle = computed(() => {
-  const t = activeTarget.value;
-  if (!t) return "";
-  if (t.kind === "group") {
-    const names = (t.members || []).map((m) => m.name).join("、");
-    return `群聊 · ${t.members?.length ?? 0} 个 AI${names ? `（${names}）` : ""}`;
-  }
-  if (t.kind === "dialog") {
-    return t.bot?.name ? `对话 · ${t.bot.name}` : "对话 · Webchat";
-  }
-  return "AI 好友 · 私聊";
-});
-
-// A new message appears (send): always jump to the bottom.
 watch(() => activeThread.value.messages.length, () => scrollToBottom(true));
-// Streaming text grows token by token: keep the view pinned to the bottom.
 watch(
   () => activeThread.value.messages.map((m) => m.text).join(""),
   () => scrollToBottom(),
 );
-// Opening a different conversation: reset the pin and land at the bottom.
 watch(activeKey, () => {
   pinned.value = true;
   scrollToBottom(true);
 });
 
 function closeChat() {
-  chat.activeKey = "";
+  chat.closeActive();
 }
 
 async function onSend(text: string) {
-  const target = activeTarget.value;
-  if (!target) return;
+  if (!activeAgent.value) return;
   await scrollToBottom(true);
   await chat.sendMessage(text);
-
-  // Raise a system notification for the reply if the app is in the background.
   const msgs = activeThread.value.messages;
   const last = msgs[msgs.length - 1];
   if (settings.settings.notifyEnabled && last && last.role === "assistant" && !last.error) {
     notify({
-      title: target.displayName,
+      title: activeAgent.value.name,
       body: (last.text || "").slice(0, 120),
       onlyWhenUnfocused: settings.settings.notifyOnlyBackground,
     });
   }
 }
 
-// Keep the view pinned when the (mobile) keyboard opens/closes.
 function onViewportResize() {
   if (pinned.value) void scrollToBottom(true);
 }
 onMounted(() => {
   window.visualViewport?.addEventListener("resize", onViewportResize);
-  // The window can mount with a conversation already active (mobile single-pane
-  // navigation), where the activeKey watcher never fires — so jump to the bottom
-  // explicitly on mount as well.
   void scrollToBottom(true);
 });
 onBeforeUnmount(() => {
@@ -139,7 +104,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="window">
-    <template v-if="activeTarget">
+    <template v-if="activeAgent">
       <header class="head">
         <v-btn
           v-if="isMobile"
@@ -149,14 +114,9 @@ onBeforeUnmount(() => {
           class="back-btn"
           @click="closeChat"
         />
-        <AstrbotAvatar
-          :name="activeTarget.displayName"
-          :seed="activeTarget.avatarSeed"
-          :group="isGroup"
-          :size="42"
-        />
+        <AstrbotAvatar :name="activeAgent.name" :seed="activeAgent.avatarSeed" :size="42" />
         <div class="head-meta">
-          <div class="head-name">{{ activeTarget.displayName }}</div>
+          <div class="head-name">{{ activeAgent.name }}</div>
           <div class="head-sub">{{ subtitle }}</div>
         </div>
       </header>
@@ -165,20 +125,16 @@ onBeforeUnmount(() => {
         <div ref="scrollEl" class="messages chat-scroll" @scroll.passive="onMessagesScroll">
           <div v-if="!activeThread.messages.length" class="hint">
             <v-icon icon="mdi-message-outline" size="34" class="mb-2" />
-            <p>
-              {{ isGroup ? "发送一条消息，群里的每个 AI 都会回复。" : "还没有消息，发送一条开始对话吧。" }}
-            </p>
+            <p>还没有消息，发送一条开始对话吧。</p>
           </div>
           <MessageBubble
             v-for="(m, i) in activeThread.messages"
             :key="i"
             :message="m"
             :self="m.role === 'user'"
-            :show-sender="isGroup"
           />
         </div>
 
-        <!-- Floating jump-to-bottom button: only while reading history. -->
         <transition name="fade">
           <button
             v-if="showJumpButton"
@@ -198,8 +154,8 @@ onBeforeUnmount(() => {
     <div v-else class="placeholder">
       <div class="placeholder-inner">
         <img src="/logo.svg" alt="AstrBot+" width="84" height="84" />
-        <h3 class="mt-3">选择一段对话、AI 好友或群聊开始聊天</h3>
-        <p class="text-medium-emphasis">「对话」直连 AstrBot Webchat，「AI 好友」来自 WebUI 创建的机器人</p>
+        <h3 class="mt-3">选择一个 Agent 开始聊天</h3>
+        <p class="text-medium-emphasis">Agent 来自 WebUI「创建机器人」页面</p>
       </div>
     </div>
   </section>
@@ -238,7 +194,6 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   max-width: 60vw;
 }
-/* Wrapper anchors the floating jump button to the message area. */
 .messages-wrap {
   position: relative;
   flex: 1 1 auto;
@@ -254,7 +209,6 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  /* Keep the latest message above the on-screen keyboard / composer. */
   scroll-padding-bottom: 12px;
   overscroll-behavior: contain;
 }
@@ -266,7 +220,6 @@ onBeforeUnmount(() => {
   opacity: 0.66;
   text-align: center;
 }
-/* Floating "jump to bottom" button, sitting just above the composer. */
 .jump-btn {
   position: absolute;
   right: 18px;

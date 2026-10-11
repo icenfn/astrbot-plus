@@ -2,12 +2,12 @@
  * Socket.io client for the AstrBot+ companion plugin (`astrbot_plugin_plus`).
  *
  * The plugin exposes a single dedicated port (default 6199). Everything the
- * client needs — the bot list, Webchat dialog list / create / delete, message
- * history, and streaming chat — travels over this one Socket.io connection.
- * Authentication uses an API key carried in the handshake `auth` payload.
+ * client needs — the Agent (bot) list and streaming chat — travels over this
+ * one Socket.io connection. Authentication uses an API key carried in the
+ * handshake `auth` payload.
  */
 import { io, type Socket } from "socket.io-client";
-import type { BotInfo, DialogRow, GroupChat } from "./types";
+import type { BotInfo } from "./types";
 
 export interface SocketEnvelope<T> {
   status: "ok" | "error";
@@ -98,17 +98,6 @@ export class PlusSocket {
     this.socket = null;
   }
 
-  private on(event: string, fn: (...args: unknown[]) => void): void {
-    if (!this.listeners.has(event)) this.listeners.set(event, new Set());
-    this.listeners.get(event)!.add(fn);
-    this.socket?.on(event, fn);
-  }
-
-  private off(event: string, fn: (...args: unknown[]) => void): void {
-    this.listeners.get(event)?.delete(fn);
-    this.socket?.off(event, fn);
-  }
-
   /** Emit an event that the server answers with an acknowledgement envelope. */
   private request<T>(event: string, payload: unknown = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
@@ -137,34 +126,6 @@ export class PlusSocket {
 
   listBots(): Promise<BotInfo[]> {
     return this.request<BotInfo[]>("bots:list").then((v) => v ?? []);
-  }
-
-  listDialogs(): Promise<DialogRow[]> {
-    return this.request<DialogRow[]>("dialogs:list").then((v) => v ?? []);
-  }
-
-  createDialog(botId?: string): Promise<DialogRow> {
-    return this.request<DialogRow>("dialogs:create", { botId });
-  }
-
-  deleteDialog(id: string): Promise<{ deleted: boolean }> {
-    return this.request("dialogs:delete", { id });
-  }
-
-  dialogHistory(id: string): Promise<{ messages: unknown[] }> {
-    return this.request("dialogs:history", { id });
-  }
-
-  listRegistry(): Promise<{ users?: unknown[]; groups?: GroupChat[] }> {
-    return this.request("registry:list");
-  }
-
-  upsertGroup(payload: { id?: string; name: string; memberIds: string[] }): Promise<GroupChat> {
-    return this.request<GroupChat>("registry:group:upsert", payload);
-  }
-
-  deleteGroup(id: string): Promise<{ id: string }> {
-    return this.request("registry:group:delete", { id });
   }
 
   /**
