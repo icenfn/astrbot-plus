@@ -1,7 +1,7 @@
 {
   "name": "astrbot-plus",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "description": "AstrBot+ — a modern client for AstrBot (Tauri + Vue 3 + Vuetify 4)",
   "author": "astrbot-plus contributors",

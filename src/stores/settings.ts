@@ -83,7 +83,11 @@ export const useSettingsStore = defineStore("settings", () => {
       socket.value?.disconnect();
       socket.value = null;
       connected.value = false;
-      lastError.value = e instanceof Error ? e.message : String(e);
+      const raw = e instanceof Error ? e.message : String(e);
+      // Turn the opaque socket.io "websocket error" into an actionable hint.
+      lastError.value = /websocket error|transport error|xhr poll error/i.test(raw)
+        ? `${raw}（与插件的连接失败：请确认插件地址/端口可直连、访问密钥正确，且网络未拦截 WebSocket）`
+        : raw;
       return false;
     } finally {
       connecting.value = false;

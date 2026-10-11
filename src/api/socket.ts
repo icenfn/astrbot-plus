@@ -62,11 +62,17 @@ export class PlusSocket {
     this.socket?.close();
     const socket = io(this.url, {
       auth: { token: this.key },
-      transports: ["websocket", "polling"],
+      // Prefer polling first, then upgrade to websocket. Starting with polling
+      // avoids failures in environments that block the raw websocket handshake
+      // (e.g. strict WebView CSP or HTTP proxies). tryAllTransports makes the
+      // client fall back to a working transport instead of failing outright.
+      transports: ["polling", "websocket"],
+      tryAllTransports: true,
+      upgrade: true,
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1500,
-      timeout: 10000,
+      timeout: 20000,
     });
     this.socket = socket;
     // Re-attach any listeners requested before the socket existed.
