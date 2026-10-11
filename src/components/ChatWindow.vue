@@ -237,7 +237,7 @@ onBeforeUnmount(() => {
   z-index: 5;
 }
 .jump-btn:hover {
-  background: rgba(47, 134, 189, 0.18);
+  background: rgba(var(--v-theme-primary), 0.18);
 }
 .fade-enter-active,
 .fade-leave-active {

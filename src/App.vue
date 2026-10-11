@@ -25,7 +25,7 @@ useVisualViewport();
 // Keep the Vuetify theme in sync with the settings store.
 watch(
   isDark,
-  (dark) => theme.change(dark ? "astrbotDark" : "astrbotLight"),
+  (dark) => theme.change(dark ? "telegramDark" : "telegramLight"),
   { immediate: true },
 );
 

@@ -5,23 +5,28 @@ import { createVuetify, type ThemeDefinition } from "vuetify";
 import { aliases, mdi } from "vuetify/iconsets/mdi";
 
 /**
- * AstrBot+ theme — a Telegram-inspired palette.
- * The primary color is derived from the AstrBot brand color (#2f86bd).
+ * AstrBot+ theme — a faithful Telegram palette.
+ * Dark theme mirrors Telegram Desktop dark (#0e1621 base, #17212b panels,
+ * #2b5278 own-bubble, #5288c1 accent). Light theme mirrors Telegram's clean
+ * white/green look (#ffffff panels, #eeffde own-bubble, #4fad5b accent).
  */
-const astrbotDark: ThemeDefinition = {
+
+const telegramDark: ThemeDefinition = {
   dark: true,
   colors: {
-    background: "#0e1621",
-    surface: "#17212b",
-    "surface-bright": "#1d2836",
-    "surface-light": "#202b36",
-    "surface-variant": "#232e3c",
-    primary: "#2f86bd",
-    "primary-darken-1": "#2b79ab",
+    background: "#0e1621", // app background
+    surface: "#17212b", // panels, headers, sidebar
+    "surface-bright": "#1c2733", // hover / raised
+    "surface-light": "#1e2c3a", // incoming bubble
+    "surface-variant": "#232e3c", // inputs
+    primary: "#5288c1", // Telegram accent blue
+    "primary-darken-1": "#4a7aab",
+    "own-bubble": "#2b5278", // own message bubble
+    "on-own-bubble": "#ffffff",
     secondary: "#64b5f6",
     accent: "#4fc3f7",
     error: "#e53935",
-    info: "#29b6f6",
+    info: "#5288c1",
     success: "#4caf50",
     warning: "#fb8c00",
     "on-surface": "#e9edf1",
@@ -32,19 +37,23 @@ const astrbotDark: ThemeDefinition = {
     "border-opacity": 0.6,
     "high-emphasis-opacity": 0.92,
     "medium-emphasis-opacity": 0.68,
+    "hover-opacity": 0.06,
+    "activated-opacity": 0.1,
   },
 };
 
-const astrbotLight: ThemeDefinition = {
+const telegramLight: ThemeDefinition = {
   dark: false,
   colors: {
-    background: "#f4f6f8",
-    surface: "#ffffff",
+    background: "#e7ebf0", // app background
+    surface: "#ffffff", // panels, headers, sidebar
     "surface-bright": "#ffffff",
-    "surface-light": "#ffffff",
-    "surface-variant": "#eef2f6",
-    primary: "#2f86bd",
-    "primary-darken-1": "#2b79ab",
+    "surface-light": "#f1f4f7", // incoming bubble
+    "surface-variant": "#eef2f6", // inputs
+    primary: "#4fad5b", // Telegram green accent
+    "primary-darken-1": "#46a051",
+    "own-bubble": "#eeffde", // own message bubble (light green)
+    "on-own-bubble": "#1b2a17",
     secondary: "#1e88e5",
     accent: "#039be5",
     error: "#e53935",
@@ -54,14 +63,22 @@ const astrbotLight: ThemeDefinition = {
     "on-surface": "#0f1b26",
     "on-background": "#0f1b26",
   },
+  variables: {
+    "border-color": "#d7dee5",
+    "border-opacity": 0.8,
+    "high-emphasis-opacity": 0.9,
+    "medium-emphasis-opacity": 0.6,
+    "hover-opacity": 0.05,
+    "activated-opacity": 0.09,
+  },
 };
 
 export default createVuetify({
   theme: {
-    defaultTheme: "astrbotDark",
+    defaultTheme: "telegramDark",
     themes: {
-      astrbotDark,
-      astrbotLight,
+      telegramDark,
+      telegramLight,
     },
   },
   icons: {

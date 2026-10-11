@@ -15,8 +15,8 @@ const { setAutoStart } = useWindow();
 
 const themes: { title: string; value: ThemeMode }[] = [
   { title: "跟随系统", value: "system" },
-  { title: "深色", value: "astrbotDark" },
-  { title: "浅色", value: "astrbotLight" },
+  { title: "深色", value: "telegramDark" },
+  { title: "浅色", value: "telegramLight" },
 ];
 
 const canAutoStart = computed(() => isTauri);
@@ -50,16 +50,7 @@ async function onAutoStart(value: boolean) {
           <v-text-field
             v-model="settings.settings.socketUrl"
             label="插件服务器地址"
-            placeholder="例如 192.168.1.10:6199"
-            density="compact"
-            variant="solo-filled"
-            hide-details="auto"
-            class="mb-3"
-          />
-          <v-text-field
-            v-model="settings.settings.accessKey"
-            label="访问密钥（可选）"
-            type="password"
+            placeholder="例如 192.168.1.10:6199 或 ws://192.168.1.10:6199"
             density="compact"
             variant="solo-filled"
             hide-details="auto"
@@ -174,7 +165,7 @@ async function onAutoStart(value: boolean) {
       <v-card class="card" variant="flat">
         <v-card-title class="card-title">关于</v-card-title>
         <v-card-text class="text-medium-emphasis">
-          <p>AstrBot+ 客户端 · v0.3.2</p>
+          <p>AstrBot+ 客户端 · v0.4.0</p>
           <p class="text-caption">
             Agent 列表与对话通过配套插件 <code>astrbot-plugin-plus</code> 的 Socket.io 服务端提供。
           </p>

@@ -6,14 +6,15 @@ const props = withDefaults(
   { name: "", seed: "", size: 46 },
 );
 
+/* Telegram's avatar palette. */
 const PALETTE = [
-  "#2f86bd",
-  "#e57373",
-  "#81c784",
-  "#ffb74d",
-  "#9575cd",
-  "#4fc3f7",
-  "#f06292",
+  "#cc5049",
+  "#d67722",
+  "#955cdb",
+  "#40a920",
+  "#368ad1",
+  "#c7508b",
+  "#eb7050",
 ];
 
 const background = computed(() => {

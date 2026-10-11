@@ -275,10 +275,10 @@ async function refresh() {
   user-select: none;
 }
 .contact:hover {
-  background: rgba(47, 134, 189, 0.1);
+  background: rgba(var(--v-theme-primary), 0.09);
 }
 .contact.active {
-  background: rgba(47, 134, 189, 0.2);
+  background: rgba(var(--v-theme-primary), 0.18);
 }
 .meta {
   flex: 1 1 auto;
@@ -314,8 +314,8 @@ async function refresh() {
   min-width: 20px;
   height: 20px;
   padding: 0 6px;
-  border-radius: 10px;
-  background: #e53935;
+  border-radius: 999px;
+  background: rgb(var(--v-theme-primary));
   color: #fff;
   font-size: 11.5px;
   font-weight: 700;

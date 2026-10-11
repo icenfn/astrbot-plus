@@ -2,19 +2,18 @@
  * Settings store — connection endpoint, appearance and app preferences.
  *
  * The client talks to the companion plugin (`astrbot_plugin_plus`) over a single
- * Socket.io connection, so "connection" here is just the plugin address plus the
- * optional access key. Everything is persisted to localStorage.
+ * Socket.io connection, so "connection" here is just the plugin address — no
+ * access key is required. Everything is persisted to localStorage.
  */
 import { defineStore } from "pinia";
 import { computed, ref, watch } from "vue";
 import { useTheme } from "vuetify";
 import { PlusSocket } from "@/api/socket";
 
-export type ThemeMode = "system" | "astrbotDark" | "astrbotLight";
+export type ThemeMode = "system" | "telegramDark" | "telegramLight";
 
 interface SettingsState {
   socketUrl: string;
-  accessKey: string;
   theme: ThemeMode;
   autoStart: boolean;
   closeToTray: boolean;
@@ -28,7 +27,6 @@ const STORAGE_KEY = "astrbot-plus.settings";
 
 const DEFAULTS: SettingsState = {
   socketUrl: "",
-  accessKey: "",
   theme: "system",
   autoStart: false,
   closeToTray: true,
@@ -41,7 +39,13 @@ const DEFAULTS: SettingsState = {
 function load(): SettingsState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<SettingsState>) };
+    if (raw) {
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      // Migrate pre-0.4 theme names to the Telegram palette.
+      if (data.theme === "astrbotDark") data.theme = "telegramDark";
+      if (data.theme === "astrbotLight") data.theme = "telegramLight";
+      return { ...DEFAULTS, ...(data as Partial<SettingsState>) };
+    }
   } catch {
     /* ignore corrupt storage */
   }
@@ -80,7 +84,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (mode === "system") {
       const prefersDark =
         window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? true;
-      theme.global.name.value = prefersDark ? "astrbotDark" : "astrbotLight";
+      theme.global.name.value = prefersDark ? "telegramDark" : "telegramLight";
     } else {
       theme.global.name.value = mode;
     }
@@ -88,7 +92,7 @@ export const useSettingsStore = defineStore("settings", () => {
   watch(() => settings.value.theme, applyTheme, { immediate: true });
 
   function cycleTheme(): void {
-    const order: ThemeMode[] = ["system", "astrbotDark", "astrbotLight"];
+    const order: ThemeMode[] = ["system", "telegramDark", "telegramLight"];
     const idx = order.indexOf(settings.value.theme);
     settings.value.theme = order[(idx + 1) % order.length];
   }
@@ -96,7 +100,7 @@ export const useSettingsStore = defineStore("settings", () => {
   // ---- socket -------------------------------------------------------------
   function getSocket(): PlusSocket {
     if (!socket) {
-      socket = new PlusSocket(settings.value.socketUrl, settings.value.accessKey);
+      socket = new PlusSocket(settings.value.socketUrl);
     }
     return socket;
   }
@@ -111,7 +115,7 @@ export const useSettingsStore = defineStore("settings", () => {
     lastError.value = "";
     try {
       socket?.disconnect();
-      socket = new PlusSocket(settings.value.socketUrl, settings.value.accessKey);
+      socket = new PlusSocket(settings.value.socketUrl);
       await socket.connect();
       await socket.ping();
       connected.value = true;
@@ -121,7 +125,7 @@ export const useSettingsStore = defineStore("settings", () => {
       const raw = e instanceof Error ? e.message : String(e);
       // Turn the opaque socket.io "websocket error" into an actionable hint.
       lastError.value = /websocket error|transport error|xhr poll error/i.test(raw)
-        ? `${raw}（与插件的连接失败：请确认插件地址/端口可直连、访问密钥正确，且网络未拦截 WebSocket）`
+        ? `${raw}（与插件的连接失败：请确认插件地址/端口可直连、插件已启动，且网络未拦截该端口）`
         : raw;
       return false;
     } finally {

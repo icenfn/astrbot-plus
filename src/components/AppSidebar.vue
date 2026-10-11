@@ -94,10 +94,10 @@ const current = computed(() => route.name);
   transition: background 0.15s ease, color 0.15s ease;
 }
 .rail-btn:hover {
-  background: rgba(47, 134, 189, 0.16);
+  background: rgba(var(--v-theme-primary), 0.13);
 }
 .rail-btn.is-active {
-  background: rgba(47, 134, 189, 0.22);
+  background: rgba(var(--v-theme-primary), 0.2);
   color: rgb(var(--v-theme-primary));
 }
 .status-dot {

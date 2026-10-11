@@ -10,18 +10,14 @@ const { connecting, lastError, connected } = storeToRefs(settings);
 
 const show = ref(false);
 const draftUrl = ref(settings.settings.socketUrl);
-const draftKey = ref(settings.settings.accessKey);
-const revealKey = ref(false);
 
 function open() {
   draftUrl.value = settings.settings.socketUrl;
-  draftKey.value = settings.settings.accessKey;
   show.value = true;
 }
 
 async function save() {
   settings.settings.socketUrl = draftUrl.value.trim();
-  settings.settings.accessKey = draftKey.value.trim();
   const ok = await settings.connect();
   if (ok) {
     await chat.loadContacts();
@@ -54,20 +50,9 @@ async function save() {
           <v-text-field
             v-model="draftUrl"
             label="插件服务器地址"
-            placeholder="http://localhost:6199"
+            placeholder="例如 192.168.1.10:6199 或 ws://192.168.1.10:6199"
             prepend-inner-icon="mdi-web"
-            hint="AstrBot+ 配套插件对外暴露的唯一端口，无需包含路径"
-            persistent-hint
-          />
-          <v-text-field
-            v-model="draftKey"
-            label="访问密钥（API Key）"
-            placeholder="与插件配置中的 access_key 一致"
-            prepend-inner-icon="mdi-key-variant"
-            :type="revealKey ? 'text' : 'password'"
-            :append-inner-icon="revealKey ? 'mdi-eye-off' : 'mdi-eye'"
-            @click:append-inner="revealKey = !revealKey"
-            hint="在 AstrBot+ 插件配置中设置的访问密钥"
+            hint="AstrBot+ 配套插件对外暴露的唯一端口，支持 host:6199、http:// 或 ws:// 写法，无需包含路径"
             persistent-hint
           />
         </v-card-text>

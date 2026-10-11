@@ -3,8 +3,8 @@
  *
  * The plugin exposes a single dedicated port (default 6199). Everything the
  * client needs — the Agent (bot) list and streaming chat — travels over this
- * one Socket.io connection. Authentication uses an API key carried in the
- * handshake `auth` payload.
+ * one Socket.io connection. No access key is required: the address alone is
+ * enough to connect.
  */
 import { io, type Socket } from "socket.io-client";
 import type { BotInfo } from "./types";
@@ -30,21 +30,23 @@ export interface ChatStreamHandlers {
 
 /** Normalise a bare host[:port] or url into a Socket.io endpoint url. */
 export function normalizeSocketUrl(raw: string): string {
-  const value = (raw || "").trim();
+  let value = (raw || "").trim();
   if (!value) return "";
-  if (/^https?:\/\//i.test(value)) return value.replace(/\/+$/, "");
-  return `http://${value.replace(/\/+$/, "")}`;
+  // Accept ws:// / wss:// and bare host[:port] alike; socket.io-client expects an
+  // http(s) base url and negotiates the websocket upgrade itself. Previously a
+  // ws:// input produced the invalid "http://ws://…" and broke the connection.
+  value = value.replace(/^wss:\/\//i, "https://").replace(/^ws:\/\//i, "http://");
+  if (!/^https?:\/\//i.test(value)) value = `http://${value}`;
+  return value.replace(/\/+$/, "");
 }
 
 export class PlusSocket {
   private url: string;
-  private key: string;
   private socket: Socket | null = null;
   private listeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
-  constructor(url: string, key: string) {
+  constructor(url: string) {
     this.url = normalizeSocketUrl(url);
-    this.key = (key || "").trim();
   }
 
   get configured(): boolean {
@@ -61,7 +63,6 @@ export class PlusSocket {
     if (this.socket?.connected) return Promise.resolve();
     this.socket?.close();
     const socket = io(this.url, {
-      auth: { token: this.key },
       // Prefer polling first, then upgrade to websocket. Starting with polling
       // avoids failures in environments that block the raw websocket handshake
       // (e.g. strict WebView CSP or HTTP proxies). tryAllTransports makes the
