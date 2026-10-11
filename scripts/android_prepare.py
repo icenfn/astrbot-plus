@@ -29,18 +29,66 @@ def log(msg: str) -> None:
 
 
 def patch_manifest_cleartext(project: str) -> None:
-    path = os.path.join(project, "app", "src", "main", "AndroidManifest.xml")
-    with open(path, encoding="utf-8") as f:
+    """Allow cleartext HTTP so a self-hosted AstrBot over http:// is reachable.
+
+    The earlier implementation patched the manifest with a naive
+    ``content.replace("<application ", ...)`` — which silently does nothing when
+    the generated template writes ``<application`` followed by a newline instead
+    of a space. The script then still logged "cleartext HTTP enabled", so the
+    broken APK shipped and the Android WebView kept blocking cleartext http/ws
+    requests (the client's opaque "xhr poll error"). This version:
+
+      * inserts the attribute *positionally* (right after the ``<application``
+        tag name), independent of surrounding whitespace/newlines,
+      * also installs an explicit ``network_security_config.xml`` allowing
+        cleartext (belt and braces),
+      * hard-fails the build when the patch cannot be verified, so a broken
+        APK can never be published silently again.
+    """
+    app_dir = os.path.join(project, "app", "src", "main")
+    manifest = os.path.join(app_dir, "AndroidManifest.xml")
+    with open(manifest, encoding="utf-8") as f:
         content = f.read()
+
+    # 1) Manifest: usesCleartextTraffic + networkSecurityConfig reference.
+    idx = content.find("<application")
+    if idx == -1:
+        raise SystemExit("[android_prepare] ERROR: <application> tag not found in manifest")
+    insert_at = idx + len("<application")
     if "usesCleartextTraffic" not in content:
-        content = content.replace(
-            "<application ",
-            '<application android:usesCleartextTraffic="true" ',
-            1,
+        content = (
+            content[:insert_at]
+            + '\n        android:usesCleartextTraffic="true"'
+            + content[insert_at:]
         )
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(content)
-    log("AndroidManifest: cleartext HTTP enabled")
+    if "networkSecurityConfig" not in content:
+        content = (
+            content[:insert_at]
+            + '\n        android:networkSecurityConfig="@xml/network_security_config"'
+            + content[insert_at:]
+        )
+    with open(manifest, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    # 2) network_security_config.xml: explicitly allow cleartext.
+    xml_dir = os.path.join(app_dir, "res", "xml")
+    os.makedirs(xml_dir, exist_ok=True)
+    with open(os.path.join(xml_dir, "network_security_config.xml"), "w", encoding="utf-8") as f:
+        f.write(
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            "<network-security-config>\n"
+            '    <base-config cleartextTrafficPermitted="true" />\n'
+            "</network-security-config>\n"
+        )
+
+    # 3) Hard verification: fail loudly if the patch did not take.
+    with open(manifest, encoding="utf-8") as f:
+        final = f.read()
+    if 'usesCleartextTraffic="true"' not in final:
+        raise SystemExit(
+            "[android_prepare] ERROR: failed to enable cleartext traffic in manifest"
+        )
+    log("AndroidManifest: cleartext HTTP enabled (manifest + network_security_config)")
 
 
 def patch_manifest_softinput(project: str) -> None:

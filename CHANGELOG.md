@@ -1,3 +1,15 @@
+## v0.4.3
+
+### 修复
+
+- 📱 **彻底修复 Android 连接失败（xhr poll error）**：v0.4.1/v0.4.2 为 Android 清单打
+  `usesCleartextTraffic` 补丁时用的是简单的字符串替换 `replace("<application ", …)`，
+  而生成的 manifest 里 `<application` 后跟的是换行而非空格，导致补丁**静默失效**——
+  发布的 APK 实际上从未开启明文流量，Android WebView 默认拦截 `http://`/`ws://` 请求，
+  表现为连接报 "xhr poll error"。现改为：按位置在 `<application` 标签后插入属性
+  （与空白/换行无关）、同时安装 `network_security_config.xml` 显式允许明文、并在构建期
+  硬校验补丁结果（失败即报错，杜绝再次静默发布坏包）。本地已对两种 manifest 格式验证通过。
+
 ## v0.4.2
 
 ### 修复
