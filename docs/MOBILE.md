@@ -47,12 +47,13 @@ AstrBot 默认监听 `http://`（非 https），Android 9+ 默认禁止明文流
 ## 应用图标
 
 图标由 `scripts/gen_icons.py` 统一生成（`python3 scripts/gen_icons.py`），**不要**再用
-`npx tauri icon`——它会把素材按满幅渲染，使桌面与 Android 图标看起来被放大/裁剪，
-并会重建 Android 自适应图标（前景占满 108dp 画布，被系统蒙版放大）。生成脚本会：
+`npx tauri icon`。自 v0.4.1 起，脚本以仓库根部的 `app-icon.png` 为唯一来源**满幅**
+生成所有图标，保证安装后的图标与 `app-icon.png` 完全一致：
 
-- 桌面端：把 `public/logo.svg` 缩放到约 84% 后居中，四周留出透明边距；
-- Android 自适应图标：全幅渐变背景层 + 位于安全区（约 58%）内的透明前景层；
-- Android 旧版（≤ 7.1）：方形与圆形启动图标。
+- Android 旧版（≤ 7.1）：`app-icon.png` 直接缩放为方形（满幅）与圆形（圆形裁剪）启动图标；
+- Android 自适应图标：全幅渐变背景层 + 前景层（星形与「+」徽章居中于安全区内），
+  由系统套用蒙版后仍与 `app-icon.png` 一致；
+- 桌面端：满幅方形图标（32/128/256/512 + icns/ico）。
 
 `tauri android init` 会用模板默认图标覆盖 `app/src/main/res/`，因此构建流程中会执行：
 

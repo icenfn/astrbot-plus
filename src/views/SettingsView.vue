@@ -165,7 +165,7 @@ async function onAutoStart(value: boolean) {
       <v-card class="card" variant="flat">
         <v-card-title class="card-title">关于</v-card-title>
         <v-card-text class="text-medium-emphasis">
-          <p>AstrBot+ 客户端 · v0.4.0</p>
+          <p>AstrBot+ 客户端 · v0.4.1</p>
           <p class="text-caption">
             Agent 列表与对话通过配套插件 <code>astrbot-plugin-plus</code> 的 Socket.io 服务端提供。
           </p>

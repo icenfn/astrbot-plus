@@ -1,3 +1,18 @@
+## v0.4.1
+
+### 修复
+
+- 🖼️ **修复打包图标与 `app-icon.png` 不一致**：`scripts/gen_icons.py` 改为以仓库根部的
+  `app-icon.png` 为唯一来源**满幅**生成全部图标。此前桌面/Android legacy 图标被按
+  84%~86% 缩放并留了透明边距，安装后的图标看起来比 `app-icon.png` 小一圈；现在
+  Android legacy 图标与 `app-icon.png` 像素级一致，自适应图标（前景/背景分层）按
+  Android 官方规范重新生成，系统套用圆形/圆角蒙版后仍保持一致观感。
+
+### 文档
+
+- 📝 重写并精简 README；更正 `docs/` 中过时的连接方式（HTTP API + API Key →
+  Socket.io 单端口、无需密钥）与图标生成说明。
+
 ## v0.4.0
 
 ### 变更

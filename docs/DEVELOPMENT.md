@@ -18,9 +18,11 @@ npm run tauri build  # 打包安装包
 
 ## 连接 AstrBot
 
-1. 在 AstrBot 控制台创建 API Key（含 chat / im 等 scope）。
-2. 应用内「设置」填入服务器地址（如 `http://localhost:6185`）与 API Key。
-3. 点击「测试连接」，成功后会自动加载会话列表。
+1. 在服务端 AstrBot 安装配套插件 [astrbot-plugin-plus](https://github.com/icenfn/astrbot-plugin-plus)
+   （默认端口 `6199`），并在 WebUI「机器人 → 创建机器人」中启用 AstrBot+ 平台。
+2. 应用内「设置 → 连接」填入插件地址（如 `http://<服务器IP>:6199`，也支持
+   `host:6199` 或 `ws://…` 写法），无需密钥。
+3. 连接成功后自动加载 Agent 列表。
 
 ## 目录约定
 
@@ -48,15 +50,16 @@ npm run android:build:apk
 
 ## 图标
 
-新增或修改品牌图标时：
+仓库根部的 `app-icon.png` 是应用图标的唯一标准来源。修改品牌图标后运行：
 
 ```bash
-# 1. 编辑 public/logo.svg
-# 2. 生成 1024 主图（示例用 inkscape）
-inkscape public/logo.svg --export-type=png --export-filename=logo-master.png -w 1024 -h 1024
-# 3. 生成各平台图标
-npx tauri icon logo-master.png
+pip install pillow cairosvg
+python3 scripts/gen_icons.py
 ```
+
+它会从 `app-icon.png` 满幅生成 `src-tauri/icons/` 下的全部图标（Android legacy
+方形/圆形、自适应前景/背景、桌面 32/128/256/512 + icns/ico）。**不要**使用
+`npx tauri icon`（会引入不一致的边距与自适应前景）。
 
 ## 代码风格
 
