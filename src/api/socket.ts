@@ -5,28 +5,21 @@
  * client needs — the Agent (bot) list and streaming chat — travels over this
  * one Socket.io connection. No access key is required: the address alone is
  * enough to connect.
+ *
+ * Wire protocol (client → server):
+ *   ping                → { pong: true }
+ *   config              → server capabilities / defaults
+ *   bots:list           → { status, data: [{ id, name, ... }] }
+ *   chat:send           → stream replies back via chat:* events
+ *     payload: { text, botId, sessionId } (reqId is generated client-side)
+ *
+ * Wire protocol (server → client):
+ *   chat:session        → { reqId, sessionId }
+ *   chat:delta          → { reqId, delta }
+ *   chat:done           → { reqId, text, sessionId }
+ *   chat:error          → { reqId, message }
  */
 import { io, type Socket } from "socket.io-client";
-import type { BotInfo } from "./types";
-
-export interface SocketEnvelope<T> {
-  status: "ok" | "error";
-  data: T;
-  message?: string | null;
-}
-
-export interface ChatSendPayload {
-  sessionId?: string;
-  botId?: string;
-  text: string;
-}
-
-export interface ChatStreamHandlers {
-  onDelta?: (delta: string, full: string) => void;
-  onSession?: (sessionId: string) => void;
-  onDone?: (full: string) => void;
-  onError?: (error: Error) => void;
-}
 
 /** Normalise a bare host[:port] or url into a Socket.io endpoint url. */
 export function normalizeSocketUrl(raw: string): string {
@@ -40,6 +33,28 @@ export function normalizeSocketUrl(raw: string): string {
   return value.replace(/\/+$/, "");
 }
 
+/** Generate a unique request id for correlating a chat stream. */
+function genReqId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export interface ChatStreamHandlers {
+  onSession?: (sessionId: string) => void;
+  /** delta is the newest chunk; full is the accumulated reply so far. */
+  onDelta?: (delta: string, full: string) => void;
+  onDone?: (text: string, sessionId: string | null) => void;
+  onError?: (err: Error) => void;
+}
+
+interface PluginBot {
+  id: string;
+  name?: string;
+  [k: string]: unknown;
+}
+
 export class PlusSocket {
   private url: string;
   private socket: Socket | null = null;
@@ -49,133 +64,169 @@ export class PlusSocket {
     this.url = normalizeSocketUrl(url);
   }
 
-  get configured(): boolean {
-    return !!this.url;
-  }
-
   get connected(): boolean {
     return !!this.socket?.connected;
   }
 
-  /** Open the connection (idempotent). */
-  connect(): Promise<void> {
-    if (!this.url) return Promise.reject(new Error("未配置插件服务器地址"));
-    if (this.socket?.connected) return Promise.resolve();
+  async connect(): Promise<void> {
+    if (this.socket?.connected) return;
     this.socket?.close();
     const socket = io(this.url, {
-      // Prefer polling first, then upgrade to websocket. Starting with polling
-      // avoids failures in environments that block the raw websocket handshake
-      // (e.g. strict WebView CSP or HTTP proxies). tryAllTransports makes the
-      // client fall back to a working transport instead of failing outright.
-      transports: ["polling", "websocket"],
-      tryAllTransports: true,
-      upgrade: true,
+      // Engine.IO default order: start with long-polling, then upgrade to a
+      // websocket. This is the most compatible behaviour — an earlier build
+      // forced "websocket first + upgrade disabled", which fails outright on
+      // networks/proxies that block the websocket upgrade and produced the
+      // opaque "websocket error". Letting socket.io negotiate (polling →
+      // websocket) makes the connection work everywhere.
+      //   transports: ["polling", "websocket"]  (default, hence omitted)
+      //   upgrade: true                         (default, hence omitted)
+      path: "/socket.io",
       reconnection: true,
       reconnectionAttempts: Infinity,
-      reconnectionDelay: 1500,
+      reconnectionDelay: 800,
+      reconnectionDelayMax: 5000,
       timeout: 20000,
     });
-    this.socket = socket;
-    // Re-attach any listeners requested before the socket existed.
-    for (const [event, set] of this.listeners) {
-      for (const fn of set) socket.on(event, fn as (...args: unknown[]) => void);
-    }
-    return new Promise((resolve, reject) => {
+    this.attach(socket);
+    await new Promise<void>((resolve, reject) => {
       const onConnect = () => {
-        socket.off("connect_error", onError);
+        cleanup();
         resolve();
       };
       const onError = (err: Error) => {
-        socket.off("connect", onConnect);
-        reject(err instanceof Error ? err : new Error(String(err)));
+        cleanup();
+        reject(new Error(err.message || "connect_error"));
       };
-      socket.once("connect", onConnect);
-      socket.once("connect_error", onError);
+      const cleanup = () => {
+        socket.off("connect", onConnect);
+        socket.off("connect_error", onError);
+      };
+      socket.on("connect", onConnect);
+      socket.on("connect_error", onError);
     });
   }
 
+  private attach(socket: Socket): void {
+    this.socket = socket;
+    socket.onAny((event: string, ...args: unknown[]) => {
+      const set = this.listeners.get(event);
+      if (set) {
+        for (const cb of set) cb(...args);
+      }
+    });
+  }
+
+  on(event: string, cb: (...args: unknown[]) => void): () => void {
+    let set = this.listeners.get(event);
+    if (!set) {
+      set = new Set();
+      this.listeners.set(event, set);
+    }
+    set.add(cb);
+    return () => set!.delete(cb);
+  }
+
   disconnect(): void {
+    this.socket?.removeAllListeners();
     this.socket?.close();
     this.socket = null;
   }
 
-  /** Emit an event that the server answers with an acknowledgement envelope. */
-  private request<T>(event: string, payload: unknown = {}): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const socket = this.socket;
-      if (!socket || !socket.connected) {
-        reject(new Error("尚未连接到 AstrBot+ 插件"));
-        return;
-      }
-      const timer = window.setTimeout(() => reject(new Error("插件响应超时")), 20000);
-      socket.emit(event, payload, (res: SocketEnvelope<T> | T) => {
-        window.clearTimeout(timer);
-        const env = res as SocketEnvelope<T>;
-        if (env && typeof env === "object" && "status" in env) {
-          if (env.status === "error") reject(new Error(env.message || "操作失败"));
-          else resolve(env.data);
-        } else {
-          resolve(res as T);
-        }
-      });
-    });
+  async ping(): Promise<boolean> {
+    const res = await this.request<{ pong?: boolean }>("ping", {});
+    return !!res && (res.pong === true || Object.keys(res).length === 0);
   }
 
-  ping(): Promise<{ pong: boolean }> {
-    return this.request("ping");
-  }
-
-  listBots(): Promise<BotInfo[]> {
-    return this.request<BotInfo[]>("bots:list").then((v) => v ?? []);
+  /** Fetch the Agent list. Returns [] when the request fails. */
+  async listBots(): Promise<PluginBot[]> {
+    const res = await this.request<
+      { status?: string; data?: PluginBot[] } | PluginBot[]
+    >("bots:list", {});
+    if (Array.isArray(res)) return res;
+    if (res && Array.isArray((res as { data?: PluginBot[] }).data)) {
+      return (res as { data: PluginBot[] }).data;
+    }
+    return [];
   }
 
   /**
    * Send a chat message and stream the reply.
-   * Returns a cleanup function that detaches this request's listeners.
+   *
+   * A request id is generated internally to correlate this stream with the
+   * server-pushed `chat:*` events (which the plugin addresses to this socket).
+   * Returns a synchronous unsubscribe function that detaches the listeners.
+   * Delivery failure surfaces through `handlers.onError`.
    */
-  sendChat(payload: ChatSendPayload, handlers: ChatStreamHandlers = {}): () => void {
-    const socket = this.socket;
-    if (!socket) throw new Error("尚未连接到 AstrBot+ 插件");
-    const reqId = `r_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  sendChat(
+    payload: { text: string; botId?: string; sessionId?: string },
+    handlers: ChatStreamHandlers,
+  ): () => void {
+    const reqId = genReqId();
     let full = "";
+    let done = false;
 
-    const onDelta = (raw: unknown) => {
-      const d = raw as { reqId?: string; delta?: string };
-      if (d?.reqId !== reqId || typeof d.delta !== "string") return;
-      full += d.delta;
-      handlers.onDelta?.(d.delta, full);
-    };
-    const onSession = (raw: unknown) => {
-      const d = raw as { reqId?: string; sessionId?: string };
-      if (d?.reqId !== reqId || !d.sessionId) return;
-      handlers.onSession?.(d.sessionId);
-    };
-    const onDone = (raw: unknown) => {
-      const d = raw as { reqId?: string; text?: string };
-      if (d?.reqId !== reqId) return;
-      cleanup();
-      const final = full || d.text || "";
-      handlers.onDone?.(final);
-    };
-    const onError = (raw: unknown) => {
-      const d = raw as { reqId?: string; message?: string };
-      if (d?.reqId !== reqId) return;
-      cleanup();
-      handlers.onError?.(new Error(d.message || "聊天出错"));
-    };
+    const offs: Array<() => void> = [
+      this.on("chat:session", (raw) => {
+        const d = raw as { reqId?: string; sessionId?: string };
+        if (d?.reqId === reqId && d.sessionId) handlers.onSession?.(d.sessionId);
+      }),
+      this.on("chat:delta", (raw) => {
+        const d = raw as { reqId?: string; delta?: string };
+        if (d?.reqId === reqId && d.delta) {
+          full += d.delta;
+          handlers.onDelta?.(d.delta, full);
+        }
+      }),
+      this.on("chat:done", (raw) => {
+        const d = raw as { reqId?: string; text?: string; sessionId?: string };
+        if (d?.reqId !== reqId || done) return;
+        done = true;
+        handlers.onDone?.(d.text ?? full, d.sessionId ?? null);
+      }),
+      this.on("chat:error", (raw) => {
+        const d = raw as { reqId?: string; message?: string };
+        if (d?.reqId !== reqId || done) return;
+        done = true;
+        handlers.onError?.(new Error(d.message ?? "未知错误"));
+      }),
+    ];
 
-    function cleanup() {
-      socket?.off("chat:delta", onDelta);
-      socket?.off("chat:session", onSession);
-      socket?.off("chat:done", onDone);
-      socket?.off("chat:error", onError);
+    // Fire-and-forget send; only a hard connection failure surfaces via onError
+    // (the plugin reports downstream problems through the chat:error event).
+    void (async () => {
+      try {
+        const socket = await this.ensureConnected();
+        socket.timeout(15000).emit("chat:send", { ...payload, reqId }, () => {
+          /* ack optional */
+        });
+      } catch (e) {
+        if (!done) {
+          done = true;
+          handlers.onError?.(e instanceof Error ? e : new Error(String(e)));
+        }
+      }
+    })();
+
+    return () => offs.forEach((off) => off());
+  }
+
+  private async ensureConnected(): Promise<Socket> {
+    if (!this.socket?.connected) await this.connect();
+    if (!this.socket) throw new Error("Socket 未连接");
+    return this.socket;
+  }
+
+  /** Emit an event expecting an acknowledgement payload, with timeout. */
+  private async request<T>(event: string, payload: unknown): Promise<T | null> {
+    const socket = await this.ensureConnected();
+    try {
+      const res = (await socket
+        .timeout(10000)
+        .emitWithAck(event, payload)) as T;
+      return res;
+    } catch (e) {
+      void e;
+      return null;
     }
-
-    socket.on("chat:delta", onDelta);
-    socket.on("chat:session", onSession);
-    socket.on("chat:done", onDone);
-    socket.on("chat:error", onError);
-    socket.emit("chat:send", { ...payload, reqId });
-    return cleanup;
   }
 }

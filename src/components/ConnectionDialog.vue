@@ -21,7 +21,6 @@ async function save() {
   const ok = await settings.connect();
   if (ok) {
     await chat.loadContacts();
-    chat.startPolling(settings.settings.pollIntervalSec * 1000);
     show.value = false;
   }
 }

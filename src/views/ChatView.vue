@@ -21,10 +21,7 @@ const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
 onMounted(async () => {
   if (settings.hasCredentials && !connected.value) {
     const ok = await settings.connect();
-    if (ok) {
-      await chat.loadContacts();
-      chat.startPolling(settings.settings.pollIntervalSec * 1000);
-    }
+    if (ok) await chat.loadContacts();
   }
 });
 </script>

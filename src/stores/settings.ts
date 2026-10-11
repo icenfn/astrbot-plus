@@ -20,7 +20,6 @@ interface SettingsState {
   minimizeToTray: boolean;
   notifyEnabled: boolean;
   notifyOnlyBackground: boolean;
-  pollIntervalSec: number;
 }
 
 const STORAGE_KEY = "astrbot-plus.settings";
@@ -33,7 +32,6 @@ const DEFAULTS: SettingsState = {
   minimizeToTray: true,
   notifyEnabled: true,
   notifyOnlyBackground: true,
-  pollIntervalSec: 10,
 };
 
 function load(): SettingsState {

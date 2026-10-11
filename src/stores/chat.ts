@@ -25,8 +25,6 @@ export const useChatStore = defineStore("chat", () => {
   const filter = ref<"agent">("agent");
   const search = ref("");
 
-  let pollTimer: number | undefined;
-
   const filteredAgents = computed(() => {
     const q = search.value.trim().toLowerCase();
     if (!q) return agents.value;
@@ -182,18 +180,6 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  function startPolling(intervalMs: number): void {
-    stopPolling();
-    pollTimer = window.setInterval(() => void loadContacts(), Math.max(5000, intervalMs));
-  }
-
-  function stopPolling(): void {
-    if (pollTimer !== undefined) {
-      window.clearInterval(pollTimer);
-      pollTimer = undefined;
-    }
-  }
-
   return {
     agents,
     threads,
@@ -217,7 +203,5 @@ export const useChatStore = defineStore("chat", () => {
     openTarget,
     closeActive,
     sendMessage,
-    startPolling,
-    stopPolling,
   };
 });

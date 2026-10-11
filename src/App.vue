@@ -52,10 +52,7 @@ watch(
 onMounted(async () => {
   if (settings.hasCredentials) {
     const ok = await settings.connect();
-    if (ok) {
-      await chat.loadContacts();
-      chat.startPolling(settings.settings.pollIntervalSec * 1000);
-    }
+    if (ok) await chat.loadContacts();
   }
   // Desktop: run in the background (hide instead of quitting) on close.
   installCloseHandler({ closeToTray: settings.settings.closeToTray });
@@ -63,7 +60,6 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-  chat.stopPolling();
   window.removeEventListener("android:back", onAndroidBack);
 });
 </script>
