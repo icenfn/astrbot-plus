@@ -48,6 +48,10 @@ export interface ChatMessage {
   created_at: string;
   streaming?: boolean;
   error?: boolean;
+  /** Assistant reasoning text shown when the bot enables「显示思考内容」. */
+  reasoning?: string;
+  /** Tool-call status lines shown when the bot enables「输出工具调用信息」. */
+  toolCalls?: string[];
   /** Token usage reported for the assistant turn, when available. */
   tokens?: { input?: number; output?: number };
 }

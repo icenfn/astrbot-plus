@@ -2,13 +2,29 @@
 import { computed } from "vue";
 import type { ChatMessage } from "@/api/types";
 import { renderMarkdown } from "@/utils/markdown";
+import { parseMessage } from "@/utils/messageSegments";
 
 const props = defineProps<{ message: ChatMessage; self?: boolean }>();
 
 const isUser = computed(() => props.self ?? props.message.role === "user");
 const isError = computed(() => !!props.message.error);
 const isStreaming = computed(() => !!props.message.streaming);
-const html = computed(() => renderMarkdown(props.message.text || ""));
+
+/**
+ * AstrBot can fold「思考内容」and「工具调用信息」into the reply. Split them out so
+ * we can render reasoning / tool-call chips separately from the answer body.
+ * When the bot disables both, the whole text is the body and rendering is unchanged.
+ */
+const segments = computed(() => parseMessage(props.message.text || ""));
+const hasExtras = computed(
+  () => !isUser.value && (!!segments.value.reasoning || segments.value.tools.length > 0),
+);
+const reasoningHtml = computed(() => renderMarkdown(segments.value.reasoning));
+const html = computed(() => {
+  const text = props.message.text || "";
+  if (!hasExtras.value) return renderMarkdown(text);
+  return renderMarkdown(segments.value.body);
+});
 
 /** Telegram-style HH:MM timestamp tucked into the bubble corner. */
 const time = computed(() => {
@@ -23,7 +39,17 @@ const time = computed(() => {
 <template>
   <div class="bubble-row" :class="isUser ? 'right' : 'left'">
     <div class="bubble" :class="{ user: isUser, error: isError }">
-      <div class="md" v-html="html" />
+      <div v-if="!isUser && segments.tools.length" class="tools">
+        <span v-for="(tool, idx) in segments.tools" :key="idx" class="tool-chip">
+          {{ tool }}
+        </span>
+      </div>
+      <details v-if="!isUser && segments.reasoning" class="reasoning">
+        <summary>思考过程</summary>
+        <!-- eslint-disable-next-line vue/no-v-html -->
+        <div class="md reasoning-body" v-html="reasoningHtml" />
+      </details>
+      <div v-if="html" class="md" v-html="html" />
       <span class="meta">
         <span v-if="isStreaming" class="caret" />
         <span v-if="time" class="time">{{ time }}</span>
@@ -91,6 +117,39 @@ const time = computed(() => {
 }
 .tick {
   opacity: 0.62;
+}
+.tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 6px;
+}
+.tool-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgb(var(--v-theme-secondary));
+  background: rgba(127, 140, 150, 0.18);
+}
+.reasoning {
+  margin: 0 0 6px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: rgba(127, 140, 150, 0.1);
+  font-size: 13px;
+}
+.reasoning > summary {
+  cursor: pointer;
+  opacity: 0.75;
+  user-select: none;
+  font-size: 12.5px;
+  outline: none;
+}
+.reasoning-body {
+  margin-top: 6px;
+  opacity: 0.85;
 }
 .caret {
   display: inline-block;

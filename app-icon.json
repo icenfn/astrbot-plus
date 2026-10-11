@@ -1,8 +1,6 @@
 {
-  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/tooling/cli/schema.json",
   "default": "app-icon.png",
   "bg_color": "#1a5c92",
   "android_bg": "android-bg.png",
-  "android_fg": "android-fg.png",
-  "android_fg_scale": 58
+  "android_fg": "android-fg.png"
 }
