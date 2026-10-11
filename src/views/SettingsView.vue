@@ -8,7 +8,8 @@ import { useWindow } from "@/composables/useWindow";
 
 const settings = useSettingsStore();
 const chat = useChatStore();
-const { connected, connecting, lastError } = storeToRefs(settings);
+const { connected, connecting, lastError, connectionState, socketMode } =
+  storeToRefs(settings);
 const { agents } = storeToRefs(chat);
 const { isTauri } = usePlatform();
 const { setAutoStart } = useWindow();
@@ -21,13 +22,46 @@ const themes: { title: string; value: ThemeMode }[] = [
 
 const canAutoStart = computed(() => isTauri);
 
+// Connection status chip: state + the active Socket.io transport (websocket /
+// long-polling), so the user can see how the connection is carrying traffic.
+const statusColor = computed(() => {
+  switch (connectionState.value) {
+    case "connected":
+      return "success";
+    case "connecting":
+    case "reconnecting":
+      return "warning";
+    default:
+      return "grey";
+  }
+});
+
+const statusText = computed(() => {
+  switch (connectionState.value) {
+    case "connected":
+      return "已连接";
+    case "connecting":
+      return "连接中";
+    case "reconnecting":
+      return "重连中";
+    case "disconnected":
+      return "已断开";
+    default:
+      return "未连接";
+  }
+});
+
+const modeLabel = computed(() =>
+  socketMode.value === "websocket"
+    ? "socket.io · websocket"
+    : socketMode.value === "polling"
+      ? "socket.io · polling"
+      : "socket.io · —",
+);
+
 async function onConnect() {
   const ok = await settings.connect();
   if (ok) await chat.loadContacts();
-}
-
-function onDisconnect() {
-  settings.disconnect();
 }
 
 async function onAutoStart(value: boolean) {
@@ -43,7 +77,7 @@ async function onAutoStart(value: boolean) {
         <h1 class="text-h5">设置</h1>
       </header>
 
-      <!-- 连接 -->
+      <!-- 连接：仅包含编辑框、连接按钮、连接状态 v-chip（显示 socket.io 连接模式） -->
       <v-card class="card" variant="flat">
         <v-card-title class="card-title">
           <v-icon icon="mdi-lan-connect" size="18" class="mr-2" />连接
@@ -59,20 +93,11 @@ async function onAutoStart(value: boolean) {
             class="mb-3"
           />
           <div class="row">
-            <v-btn
-              color="primary"
-              :loading="connecting"
-              @click="onConnect"
-            >
+            <v-btn color="primary" :loading="connecting" @click="onConnect">
               连接
             </v-btn>
-            <v-btn v-if="connected" variant="tonal" @click="onDisconnect">断开</v-btn>
-            <v-chip
-              :color="connected ? 'success' : 'grey'"
-              size="small"
-              variant="tonal"
-            >
-              {{ connected ? "已连接" : "未连接" }}
+            <v-chip :color="statusColor" size="small" variant="tonal">
+              {{ statusText }} · {{ modeLabel }}
             </v-chip>
           </div>
           <v-alert
@@ -83,9 +108,6 @@ async function onAutoStart(value: boolean) {
             class="mt-3"
             :text="lastError"
           />
-          <div v-if="connected" class="text-caption text-medium-emphasis mt-3">
-            已同步：{{ agents.length }} 个 Agent
-          </div>
         </v-card-text>
       </v-card>
 
@@ -132,6 +154,25 @@ async function onAutoStart(value: boolean) {
         </v-card-text>
       </v-card>
 
+      <!-- 后台运行（移动端）：申请系统后台运行权限 -->
+      <v-card class="card" variant="flat">
+        <v-card-title class="card-title">
+          <v-icon icon="mdi-cellphone-arrow-down" size="18" class="mr-2" />后台运行
+        </v-card-title>
+        <v-card-text>
+          <v-switch
+            v-model="settings.settings.backgroundRun"
+            label="允许后台运行（保持连接并接收消息）"
+            color="primary"
+            density="compact"
+            hide-details
+          />
+          <div class="text-caption text-medium-emphasis mt-2">
+            开启后将向系统申请后台运行 / 忽略电池优化权限，以在后台持续保持 Socket.io 连接与断线重连。
+          </div>
+        </v-card-text>
+      </v-card>
+
       <!-- 启动与窗口（桌面端） -->
       <v-card v-if="isTauri" class="card" variant="flat">
         <v-card-title class="card-title">
@@ -162,6 +203,10 @@ async function onAutoStart(value: boolean) {
           />
         </v-card-text>
       </v-card>
+
+      <div v-if="connected" class="text-caption text-medium-emphasis px-1">
+        已同步：{{ agents.length }} 个 Agent
+      </div>
     </div>
   </div>
 </template>

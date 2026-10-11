@@ -8,6 +8,7 @@ import { useChatStore } from "@/stores/chat";
 import { usePlatform } from "@/composables/usePlatform";
 import { useVisualViewport } from "@/composables/useVisualViewport";
 import { useWindow } from "@/composables/useWindow";
+import { requestBackgroundRun } from "@/composables/useBackground";
 import AppSidebar from "@/components/AppSidebar.vue";
 import AppMobileNav from "@/components/AppMobileNav.vue";
 
@@ -15,7 +16,8 @@ const theme = useTheme();
 const router = useRouter();
 const settings = useSettingsStore();
 const chat = useChatStore();
-const { isDark } = storeToRefs(settings);
+const { isDark, connected } = storeToRefs(settings);
+const { activeKey } = storeToRefs(chat);
 const { isMobile } = usePlatform();
 const { installCloseHandler } = useWindow();
 
@@ -30,20 +32,42 @@ watch(
 );
 
 // Android hardware back button: the native MainActivity dispatches an
-// `android:back` event. When a chat is open, close it; otherwise fall back to
-// the chats tab.
+// `android:back` event. When a chat is open, close it (return to the list);
+// otherwise fall back to the chats tab. Returning true is not needed here —
+// the native side only forwards the event.
 function onAndroidBack() {
-  if (chat.activeKey) {
-    chat.activeKey = "";
+  if (activeKey.value) {
+    chat.closeActive();
     return;
   }
   if (router.currentRoute.value.name !== "chats") router.push("/");
 }
 
-// Refresh the list (and poll for new messages) whenever a chat closes so the
-// unread badges stay accurate.
+// Once connected, bind the real-time message feed so the list updates live even
+// while another tab is open, and request background-running permission on
+// Android so the socket stays alive when the app is not in the foreground.
 watch(
-  () => chat.activeKey,
+  connected,
+  (ok) => {
+    if (ok) {
+      chat.bindFeed();
+      void chat.loadContacts();
+      if (settings.settings.backgroundRun) void requestBackgroundRun();
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  () => settings.settings.backgroundRun,
+  (on) => {
+    if (on && connected.value) void requestBackgroundRun();
+  },
+);
+
+// Refresh the list whenever a chat closes so the unread badges stay accurate.
+watch(
+  () => activeKey.value,
   (key) => {
     if (!key) void chat.loadContacts();
   },
@@ -73,7 +97,7 @@ onBeforeUnmount(() => {
       </div>
       <!-- The bottom tab bar is hidden while a chat is open: the message view
            is a full-screen page on mobile. -->
-      <AppMobileNav v-if="isMobile && !chat.activeKey" />
+      <AppMobileNav v-if="isMobile && !activeKey" />
     </div>
   </v-app>
 </template>

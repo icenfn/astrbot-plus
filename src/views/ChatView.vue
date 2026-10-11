@@ -21,6 +21,8 @@ const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
 onMounted(async () => {
   if (settings.hasCredentials && !connected.value) {
     const ok = await settings.connect();
+    // loadContacts() also binds the real-time `message:new` feed so the list
+    // updates live (unread badge / subtitle / notifications).
     if (ok) await chat.loadContacts();
   }
 });

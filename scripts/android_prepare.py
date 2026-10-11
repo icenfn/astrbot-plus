@@ -147,7 +147,9 @@ class MainActivity : TauriActivity() {{
       insets
     }}
     window.decorView.requestApplyInsets()
+    requestBackgroundPermissions()
   }}
+
 
   // Hardware back button: dispatch an `android:back` event to the frontend so it
   // can close a conversation / go back / exit, instead of killing the Activity.
@@ -155,6 +157,22 @@ class MainActivity : TauriActivity() {{
   override fun onBackPressed() {{
     notifyWebviewBack()
   }}
+
+  private fun requestBackgroundPermissions() {
+    try {
+      if (android.os.Build.VERSION.SDK_INT >= 33) {
+        requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
+      }
+      val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+      if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+        val intent = android.content.Intent(
+          android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+        )
+        intent.data = android.net.Uri.parse("package:$packageName")
+        startActivity(intent)
+      }
+    } catch (_: Exception) {}
+  }
 
   private fun notifyWebviewBack() {{
     try {{
@@ -197,6 +215,46 @@ def patch_main_activity(project: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         f.write(MAIN_ACTIVITY_TEMPLATE.format(pkg=pkg))
     log(f"MainActivity patched (package {pkg}): insets + android:back")
+
+
+def patch_manifest_background(project: str) -> None:
+    """Declare the permissions needed to keep the socket connection alive while
+    the app is in the background / screen off, and to post message notifications.
+
+    Android otherwise suspends the process (and its Socket.io connection) once
+    the app is no longer foregrounded. These declarations — together with the
+    runtime battery-optimisation exemption requested in MainActivity — let the
+    client keep running and reconnecting in the background.
+    """
+    app_dir = os.path.join(project, "app", "src", "main")
+    manifest = os.path.join(app_dir, "AndroidManifest.xml")
+    with open(manifest, encoding="utf-8") as f:
+        content = f.read()
+
+    perms = [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
+    ]
+    missing = [p for p in perms if 'android:name="%s"' % p not in content]
+    if not missing:
+        log("AndroidManifest: background permissions already present")
+        return
+    lines = "".join('    <uses-permission android:name="%s" android:maxSdkVersion="34" />\n' % p
+                    if p.endswith("FOREGROUND_SERVICE_DATA_SYNC")
+                    else '    <uses-permission android:name="%s" />\n' % p
+                    for p in missing)
+    idx = content.find("<application")
+    if idx == -1:
+        raise SystemExit("[android_prepare] ERROR: <application> tag not found")
+    content = content[:idx] + lines + content[idx:]
+    with open(manifest, "w", encoding="utf-8") as f:
+        f.write(content)
+    log("AndroidManifest: added background permissions: %s" % ", ".join(missing))
 
 
 def set_version(project: str, version: str) -> None:
@@ -273,6 +331,7 @@ def main() -> None:
 
     patch_manifest_cleartext(args.project)
     patch_manifest_softinput(args.project)
+    patch_manifest_background(args.project)
     override_icons(args.project, args.icons)
     patch_main_activity(args.project)
     set_version(args.project, args.version)

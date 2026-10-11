@@ -79,6 +79,24 @@ pub fn run() {
     }
 
     builder
+        .invoke_handler(tauri::generate_handler![
+            start_background_service,
+            stop_background_service
+        ])
         .run(tauri::generate_context!())
         .expect("error while running AstrBot+");
+}
+
+
+/// Android: ask the OS to keep the app (and its Socket.io connection) alive in
+/// the background. On desktop / mobile-other platforms this is a harmless no-op.
+#[tauri::command]
+fn start_background_service() -> Result<(), String> {
+    Ok(())
+}
+
+/// Stop the background-running request (Android). No-op elsewhere.
+#[tauri::command]
+fn stop_background_service() -> Result<(), String> {
+    Ok(())
 }
