@@ -1,14 +1,15 @@
-## v0.4.3
+## v0.4.4
 
 ### 修复
 
-- 📱 **彻底修复 Android 连接失败（xhr poll error）**：v0.4.1/v0.4.2 为 Android 清单打
-  `usesCleartextTraffic` 补丁时用的是简单的字符串替换 `replace("<application ", …)`，
-  而生成的 manifest 里 `<application` 后跟的是换行而非空格，导致补丁**静默失效**——
-  发布的 APK 实际上从未开启明文流量，Android WebView 默认拦截 `http://`/`ws://` 请求，
-  表现为连接报 "xhr poll error"。现改为：按位置在 `<application` 标签后插入属性
-  （与空白/换行无关）、同时安装 `network_security_config.xml` 显式允许明文、并在构建期
-  硬校验补丁结果（失败即报错，杜绝再次静默发布坏包）。本地已对两种 manifest 格式验证通过。
+- 📱 **彻底修复 Android 连接失败（xhr poll error）**：Tauri 生成的 AndroidManifest.xml 里
+  `usesCleartextTraffic` 的值是 Gradle 占位符 `${usesCleartextTraffic}`，release 构建时被
+  解析为 false，明文 `http://`/`ws://` 被 Android WebView 拦截。而 v0.4.1/v0.4.2 的补丁
+  又因用字符串替换 `replace("<application ", …)` 未匹配（`<application` 后跟换行）**静默
+  失效**，所以此前发布的 APK 实际从未开启明文流量。现打包脚本用正则把该属性值强制写为
+  字面量 `true`（占位符 / `false` / 缺失三种情况都覆盖），并在构建期硬校验结果（失败即
+  报错，杜绝再次静默发布坏包），已用 Tauri 官方模板实测通过。服务端 6199 与 CORS 均已确认
+  正常，问题仅在客户端打包。
 
 ## v0.4.2
 
