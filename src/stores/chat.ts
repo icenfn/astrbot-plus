@@ -8,12 +8,19 @@
  * The store also consumes the plugin's ``message:new`` broadcast so the list is
  * updated in real time (unread badge / subtitle / system notification) without
  * any manual refresh, and it syncs a session's history from the server whenever
- * a conversation is opened.
+ * a conversation is opened. Conversations are additionally persisted to a local
+ * SQLite cache so they survive restarts and remain readable offline.
  */
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import type { AgentRow, ChatMessage, HistoryMessage } from "@/api/types";
 import { notify } from "@/composables/useNotify";
+import {
+  cacheMessages,
+  loadCachedMessages,
+  cacheSession,
+  loadCachedSessions,
+} from "@/api/cache";
 import { useSettingsStore } from "./settings";
 
 /** Cap a thread's retained messages to keep memory bounded. */
@@ -90,6 +97,8 @@ export const useChatStore = defineStore("chat", () => {
     const list = ensureThread(id);
     list.push(message);
     if (list.length > THREAD_LIMIT) list.splice(0, list.length - THREAD_LIMIT);
+    // Persist to the local SQLite cache (best-effort; no-op off Tauri).
+    void cacheMessages(id, list);
   }
 
   function upsertAgent(raw: {
@@ -151,15 +160,19 @@ export const useChatStore = defineStore("chat", () => {
     // Re-sort so the most recent conversation floats to the top.
     agents.value = [...agents.value].sort((a, b) => b.updatedAt - a.updatedAt);
 
-    // Append to the open thread if this is the active conversation and the
-    // message didn't originate from our own optimistic UI (role user messages
-    // are already echoed locally, so only mirror bot/assistant messages here).
+    // Mirror bot/assistant messages into the open thread. If a streaming
+    // placeholder is still in flight, fill it in place (instead of appending a
+    // duplicate) — this is what makes the reply show up immediately without
+    // having to leave and re-enter the conversation.
     const isActive = activeKey.value === id;
     if (isActive && msg.role !== "user") {
       const list = ensureThread(id);
       const last = list[list.length - 1];
-      // Skip if the streaming reply already rendered this exact text.
-      if (!(last && last.role === "assistant" && last.text === text)) {
+      if (last && last.role === "assistant" && last.streaming) {
+        last.text = text;
+        last.streaming = false;
+        void cacheMessages(id, list);
+      } else if (!(last && last.role === "assistant" && last.text === text)) {
         pushMessage(id, { role: msg.role, text, created_at: tsToIso(msg.ts) });
       }
     }
@@ -210,33 +223,63 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  /** Sync a session's message history from the server (client history sync). */
-  async function loadHistory(id: string): Promise<void> {
-    const settings = useSettingsStore();
-    if (!settings.connected || !id) return;
-    const sessionId = sessions.value[id] || `plus_${id}`;
-    try {
-      const history = await settings
-        .getSocket()
-        .fetchHistory(sessionId, THREAD_LIMIT);
-      if (!history.length) return;
-      // Merge with any locally-streamed messages that the server hasn't
-      // persisted yet, keyed by role + text to avoid duplicates.
-      const local = threads.value[id] ?? [];
-      const seen = new Set(history.map((m) => `${m.role}:${m.text}`));
-      const merged: ChatMessage[] = history.map((m) => ({
-        role: m.role,
-        text: m.text,
-        created_at: tsToIso(m.ts),
-      }));
-      for (const m of local) {
-        if (!seen.has(`${m.role}:${m.text}`)) merged.push(m);
-      }
-      if (merged.length > THREAD_LIMIT) merged.splice(0, merged.length - THREAD_LIMIT);
-      threads.value[id] = merged;
-    } catch {
-      /* history sync is best-effort */
+  /** Restore the agent → session mapping from the local SQLite cache. */
+  async function restoreCache(): Promise<void> {
+    const cached = await loadCachedSessions();
+    if (Object.keys(cached).length) {
+      sessions.value = { ...cached, ...sessions.value };
     }
+  }
+
+  /** Sync a session's message history from the server + local cache. */
+  async function loadHistory(id: string): Promise<void> {
+    if (!id) return;
+    const settings = useSettingsStore();
+    const sessionId = sessions.value[id] || `plus_${id}`;
+
+    let history: HistoryMessage[] = [];
+    if (settings.connected) {
+      try {
+        history = await settings.getSocket().fetchHistory(sessionId, THREAD_LIMIT);
+      } catch {
+        history = [];
+      }
+    }
+
+    const local = threads.value[id] ?? [];
+
+    // Nothing from the server and nothing in memory: fall back to the SQLite
+    // cache so a previously loaded conversation is still visible offline.
+    if (!history.length && !local.length) {
+      const cached = await loadCachedMessages(id);
+      if (cached.length) threads.value[id] = cached;
+      return;
+    }
+
+    // Merge with any locally-streamed messages that the server hasn't persisted
+    // yet, keyed by role + text to avoid duplicates.
+    const seen = new Set(history.map((m) => `${m.role}:${m.text}`));
+    const merged: ChatMessage[] = history.map((m) => ({
+      role: m.role,
+      text: m.text,
+      created_at: tsToIso(m.ts),
+    }));
+    for (const m of local) {
+      if (!seen.has(`${m.role}:${m.text}`)) merged.push(m);
+    }
+    if (merged.length > THREAD_LIMIT) merged.splice(0, merged.length - THREAD_LIMIT);
+    threads.value[id] = merged;
+
+    // Keep the list subtitle / ordering in sync with the loaded history so a
+    // conversation that already has messages no longer shows "开始对话".
+    const row = agents.value.find((a) => a.id === id);
+    if (row && merged.length) {
+      const last = merged[merged.length - 1];
+      row.lastMessage = last.text;
+      row.updatedAt = new Date(last.created_at).getTime();
+      row.messageCount = merged.length;
+    }
+    void cacheMessages(id, merged);
   }
 
   function openAgent(id: string): void {
@@ -284,6 +327,7 @@ export const useChatStore = defineStore("chat", () => {
         {
           onSession: (sid) => {
             sessions.value = { ...sessions.value, [id]: sid };
+            void cacheSession(id, sid);
           },
           onDelta: (_delta, full) => {
             assistant.text = full;
@@ -291,7 +335,7 @@ export const useChatStore = defineStore("chat", () => {
           onDone: (full) => {
             // Also covers bots with streaming disabled: the server sends the
             // complete text in a single chat:done and no deltas.
-            assistant.text = full;
+            assistant.text = full || assistant.text;
             assistant.streaming = false;
           },
           onError: (err) => {
@@ -301,14 +345,23 @@ export const useChatStore = defineStore("chat", () => {
           },
         },
       );
+      // Resolve when the stream finishes. The watchdog guarantees we never get
+      // stuck "busy" forever if the server drops a chat:done (the reply may
+      // still have arrived via the message:new feed, which flips `streaming`).
       await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => {
+          if (settled) return;
+          settled = true;
+          window.clearInterval(timer);
+          window.clearTimeout(watchdog);
+          cleanup();
+          resolve();
+        };
         const timer = window.setInterval(() => {
-          if (!assistant.streaming) {
-            window.clearInterval(timer);
-            cleanup();
-            resolve();
-          }
+          if (!assistant.streaming) finish();
         }, 100);
+        const watchdog = window.setTimeout(finish, 120000);
       });
     } catch (e) {
       assistant.text = e instanceof Error ? e.message : String(e);
@@ -316,6 +369,7 @@ export const useChatStore = defineStore("chat", () => {
       assistant.streaming = false;
     } finally {
       sending.value = false;
+      void cacheMessages(id, threads.value[id] ?? []);
     }
   }
 
@@ -348,6 +402,7 @@ export const useChatStore = defineStore("chat", () => {
     bindFeed,
     unbindFeed,
     loadContacts,
+    restoreCache,
     loadHistory,
     openAgent,
     openTarget,

@@ -8,6 +8,7 @@
     "core:default",
     "opener:default",
     "notification:default",
+    "sql:default",
     {
       "identifier": "http:default",
       "allow": [{ "url": "http://*:*" }, { "url": "https://*:*" }]

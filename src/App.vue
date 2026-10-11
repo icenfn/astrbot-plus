@@ -36,11 +36,13 @@ watch(
 // otherwise fall back to the chats tab. Returning true is not needed here —
 // the native side only forwards the event.
 function onAndroidBack() {
+  // A conversation is open: move the route back to the list. Because the open
+  // Agent is route-driven, this both closes it and returns to the chats 首页.
   if (activeKey.value) {
-    chat.closeActive();
+    void router.push("/");
     return;
   }
-  if (router.currentRoute.value.name !== "chats") router.push("/");
+  if (router.currentRoute.value.name !== "chats") void router.push("/");
 }
 
 // Once connected, bind the real-time message feed so the list updates live even
@@ -74,6 +76,8 @@ watch(
 );
 
 onMounted(async () => {
+  // Restore cached session ids (SQLite) before connecting.
+  void chat.restoreCache();
   if (settings.hasCredentials) {
     const ok = await settings.connect();
     if (ok) await chat.loadContacts();

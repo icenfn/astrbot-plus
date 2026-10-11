@@ -10,6 +10,7 @@
  */
 import { computed } from "vue";
 import { storeToRefs } from "pinia";
+import { useRouter } from "vue-router";
 import { useChatStore } from "@/stores/chat";
 import { useSettingsStore } from "@/stores/settings";
 import { usePlatform } from "@/composables/usePlatform";
@@ -17,10 +18,17 @@ import AstrbotAvatar from "./AstrbotAvatar.vue";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
+const router = useRouter();
 const { filteredAgents, activeKey, loadingContacts, contactsError } =
   storeToRefs(chat);
 const { connected } = storeToRefs(settings);
 const { isMobile } = usePlatform();
+
+// Opening a conversation navigates to its route so the back button / Android
+// hardware back always has somewhere to return to.
+function open(id: string) {
+  void router.push(`/chat/${id}`);
+}
 
 const emptyText = computed(() => {
   if (!connected.value) return "尚未连接到插件";
@@ -82,7 +90,7 @@ const emptyText = computed(() => {
         class="row"
         :class="{ active: agent.id === activeKey }"
         type="button"
-        @click="chat.openAgent(agent.id)"
+        @click="open(agent.id)"
       >
         <AstrbotAvatar :name="agent.name" :seed="agent.avatarSeed" :size="48" />
         <div class="row-main">

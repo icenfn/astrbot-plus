@@ -41,7 +41,7 @@ npm run tauri dev    # 完整桌面应用开发
 npm run tauri build  # 打包安装包
 ```
 
-更多细节见 [docs/](docs/)：架构说明 · 开发指南 · 多端适配。
+更多细节见 [CHANGELOG](./CHANGELOG.md)；多端打包与发布由 GitHub Actions（[`.github/workflows/release.yml`](./.github/workflows/release.yml)）自动完成。
 
 ## 许可
 

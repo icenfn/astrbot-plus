@@ -25,7 +25,9 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         // System notifications (desktop notification center / Android notifications).
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        // Local SQLite store for the conversation cache (desktop + mobile).
+        .plugin(tauri_plugin_sql::Builder::default().build());
 
     // ----- Desktop-only: system tray, close-to-tray, auto-start -----
     #[cfg(desktop)]

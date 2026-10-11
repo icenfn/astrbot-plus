@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, watch } from "vue";
 import { storeToRefs } from "pinia";
+import { useRoute, useRouter } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
 import { usePlatform } from "@/composables/usePlatform";
@@ -8,6 +9,8 @@ import ChatList from "@/components/ChatList.vue";
 import ChatWindow from "@/components/ChatWindow.vue";
 import ConnectionDialog from "@/components/ConnectionDialog.vue";
 
+const route = useRoute();
+const router = useRouter();
 const settings = useSettingsStore();
 const chat = useChatStore();
 const { connected } = storeToRefs(settings);
@@ -17,6 +20,35 @@ const { isMobile } = usePlatform();
 // Mobile shows a single pane: the list, or the open Agent.
 const showListOnMobile = computed(() => !activeKey.value);
 const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
+
+// The open conversation is driven by the route (`/chat/:id`). Keeping the
+// route as the single source of truth is what finally fixes "can't get back to
+// the list (首页) from the message page": every way of leaving a chat — the
+// header back button, the Android hardware back button — just moves the route
+// back to `/`, which clears the active Agent.
+function routeId(): string {
+  return typeof route.params.id === "string" ? route.params.id : "";
+}
+
+watch(
+  routeId,
+  (id) => {
+    if (id === chat.activeKey) return;
+    if (id) chat.openAgent(id);
+    else chat.closeActive();
+  },
+  { immediate: true },
+);
+
+// Keep the route in sync when the active Agent is changed from elsewhere (e.g.
+// tapping a system notification). Guarded on both sides so the two watchers
+// settle without ping-ponging.
+watch(activeKey, (key) => {
+  const id = routeId();
+  if (key === id) return;
+  if (key) void router.replace(`/chat/${key}`);
+  else if (id) void router.replace("/");
+});
 
 onMounted(async () => {
   if (settings.hasCredentials && !connected.value) {

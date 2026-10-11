@@ -11,6 +11,16 @@ const router = createRouter({
       meta: { title: "聊天" },
     },
     {
+      // A single open conversation. Routing the open Agent (instead of only
+      // holding it in store state) gives the mobile / Android hardware back
+      // button a real history target, so leaving a conversation and returning
+      // to the list — the chats 首页 — always works.
+      path: "/chat/:id",
+      name: "chat",
+      component: () => import("@/views/ChatView.vue"),
+      meta: { title: "聊天" },
+    },
+    {
       path: "/settings",
       name: "settings",
       component: () => import("@/views/SettingsView.vue"),

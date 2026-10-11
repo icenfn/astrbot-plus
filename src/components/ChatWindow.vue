@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
+import { useRouter } from "vue-router";
 import { useChatStore } from "@/stores/chat";
 import { useSettingsStore } from "@/stores/settings";
 import { usePlatform } from "@/composables/usePlatform";
@@ -11,6 +12,7 @@ import MessageComposer from "./MessageComposer.vue";
 
 const chat = useChatStore();
 const settings = useSettingsStore();
+const router = useRouter();
 const { activeAgent, activeThread, activeKey } = storeToRefs(chat);
 const { isMobile } = usePlatform();
 
@@ -72,7 +74,10 @@ watch(activeKey, () => {
 });
 
 function closeChat() {
-  chat.closeActive();
+  // Leave the conversation by moving the route back to the list. Because the
+  // open Agent is route-driven (see ChatView), this reliably returns to the
+  // chats 首页 on mobile instead of leaving the view stuck.
+  void router.push("/");
 }
 
 async function onSend(text: string) {

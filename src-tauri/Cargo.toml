@@ -1,6 +1,6 @@
 [package]
 name = "astrbot-plus"
-version = "0.1.4"
+version = "0.4.6"
 description = "AstrBot+ — a modern desktop client for AstrBot"
 authors = ["astrbot-plus contributors"]
 license = "MIT"
@@ -24,6 +24,8 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-http = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2"
+# Local SQLite cache for conversations (works on desktop + mobile).
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
