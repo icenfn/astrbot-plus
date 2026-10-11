@@ -158,21 +158,21 @@ class MainActivity : TauriActivity() {{
     notifyWebviewBack()
   }}
 
-  private fun requestBackgroundPermissions() {
-    try {
-      if (android.os.Build.VERSION.SDK_INT >= 33) {
+  private fun requestBackgroundPermissions() {{
+    try {{
+      if (android.os.Build.VERSION.SDK_INT >= 33) {{
         requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
-      }
+      }}
       val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
-      if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+      if (!pm.isIgnoringBatteryOptimizations(packageName)) {{
         val intent = android.content.Intent(
           android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
         )
         intent.data = android.net.Uri.parse("package:$packageName")
         startActivity(intent)
-      }
-    } catch (_: Exception) {}
-  }
+      }}
+    }} catch (_: Exception) {{}}
+  }}
 
   private fun notifyWebviewBack() {{
     try {{
