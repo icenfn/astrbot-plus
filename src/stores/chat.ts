@@ -12,7 +12,7 @@
  * SQLite cache so they survive restarts and remain readable offline.
  */
 import { defineStore } from "pinia";
-import { computed, ref } from "vue";
+import { computed, reactive, ref } from "vue";
 import type { AgentRow, ChatMessage, HistoryMessage } from "@/api/types";
 import { notify } from "@/composables/useNotify";
 import {
@@ -313,12 +313,14 @@ export const useChatStore = defineStore("chat", () => {
     agents.value = [...agents.value].sort((a, b) => b.updatedAt - a.updatedAt);
 
     sending.value = true;
-    const assistant: ChatMessage = {
+    // 必须是响应式对象：下方流式回调会直接改写它，若为普通对象则视图不会刷新，
+    // 表现为「发送后要退出再进入消息页才能看到回复」（重新进入会重建线程）。
+    const assistant = reactive<ChatMessage>({
       role: "assistant",
       text: "",
       created_at: new Date().toISOString(),
       streaming: true,
-    };
+    });
     pushMessage(id, assistant);
 
     try {

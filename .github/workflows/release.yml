@@ -100,126 +100,6 @@ jobs:
               main()
           CHANGELOG_EOF
 
-  build-linux:
-    name: Build (Linux deb/rpm, arm64)
-    needs: prepare
-    if: needs.prepare.outputs.should_release == 'true'
-    # 仅构建 arm64（aarch64）桌面包，不再打包 x86_64。
-    runs-on: ubuntu-22.04-arm
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - name: Install Linux build deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libssl-dev build-essential curl wget file
-      - name: Install dependencies
-        run: |
-          bash -s <<'NPMCI_EOF'
-          #!/usr/bin/env bash
-          # Resilient `npm ci` for CI.
-          #
-          # Runners occasionally hit transient `ECONNRESET` / read timeouts while talking
-          # to the npm registry, which previously failed the whole release. This wrapper
-          # raises npm's own retry/timeout budget and retries the install a few times so a
-          # single flaky connection no longer aborts the build.
-          set -uo pipefail
-
-          export npm_config_fetch_retries="${npm_config_fetch_retries:-5}"
-          export npm_config_fetch_retry_mintimeout="${npm_config_fetch_retry_mintimeout:-20000}"
-          export npm_config_fetch_retry_maxtimeout="${npm_config_fetch_retry_maxtimeout:-120000}"
-          export npm_config_fetch_timeout="${npm_config_fetch_timeout:-300000}"
-          export npm_config_maxsockets="${npm_config_maxsockets:-10}"
-
-          attempts="${NPM_CI_ATTEMPTS:-5}"
-
-          for attempt in $(seq 1 "$attempts"); do
-            echo "==> npm ci attempt ${attempt}/${attempts}"
-            # `--prefer-offline` uses the restored ~/.npm cache first (setup-node caches it)
-            # and only reaches the network for what is missing.
-            if npm ci --no-audit --no-fund --prefer-offline; then
-              echo "==> npm ci succeeded on attempt ${attempt}"
-              exit 0
-            fi
-            echo "==> npm ci failed on attempt ${attempt}; retrying in 15s..." >&2
-            sleep 15
-          done
-
-          echo "==> npm ci failed after ${attempts} attempts" >&2
-          exit 1
-          NPMCI_EOF
-      - name: Build Linux bundles (deb / rpm, arm64)
-        run: npm run tauri build -- --bundles deb,rpm
-      - name: Collect + rename artifacts
-        run: |
-          bash -s -- linux "${{ needs.prepare.outputs.version }}" <<'COLLECT_EOF'
-          #!/usr/bin/env bash
-          # Collect and rename build outputs into ./release for the GitHub Release.
-          # Usage: scripts/collect_artifacts.sh <linux|windows|android> <version>
-          set -euo pipefail
-
-          PLATFORM="${1:?platform}"
-          VERSION="${2:?version}"
-          mkdir -p release
-
-          # Return the first file matching a glob under a directory.
-          #
-          # Tolerates a MISSING directory and `head` closing the pipe early (SIGPIPE).
-          # Both would otherwise make `find` exit non-zero; combined with `set -o pipefail`
-          # and `set -e`, that aborts the whole script *silently* via the `VAR=$(...)`
-          # assignment. This was the actual reason the Android collection failed: the APK
-          # is emitted under apk/universal/ (single-target build), so the apk/arm64/ probe
-          # hit a missing directory and killed the script before it could log anything.
-          find_first() {
-            [ -d "$1" ] || return 0
-            find "$1" -name "$2" 2>/dev/null | head -1 || true
-          }
-
-          case "$PLATFORM" in
-            linux)
-              DEB=$(find_first "src-tauri/target/release/bundle/deb" "*.deb")
-              RPM=$(find_first "src-tauri/target/release/bundle/rpm" "*.rpm")
-              if [ -n "$DEB" ]; then cp "$DEB" "release/astrbot-plus-${VERSION}-linux-arm64.deb"; fi
-              if [ -n "$RPM" ]; then cp "$RPM" "release/astrbot-plus-${VERSION}-linux-aarch64.rpm"; fi
-              ;;
-            windows)
-              EXE=$(find_first "src-tauri/target/release/bundle/nsis" "*.exe")
-              if [ -n "$EXE" ]; then cp "$EXE" "release/astrbot-plus-${VERSION}-windows-x64-setup.exe"; fi
-              ;;
-            android)
-              BASE="src-tauri/gen/android/app/build/outputs/apk"
-              # A `--split-per-abi` build names the dir after the ABI (`arm64`); a single
-              # `--target aarch64` build emits one universal APK under `universal`. Both
-              # contain only arm64-v8a here (the Android ABIs are restricted in
-              # android_prepare.py), so prefer the explicit arm64 dir and fall back to any
-              # release APK.
-              APK=$(find_first "$BASE/arm64" "*-release.apk")
-              if [ -z "$APK" ]; then APK=$(find_first "$BASE" "*-release.apk"); fi
-              if [ -n "$APK" ]; then cp "$APK" "release/astrbot-plus-${VERSION}-android-arm64.apk"; fi
-              ;;
-            *)
-              echo "unknown platform: $PLATFORM" >&2
-              exit 1
-              ;;
-          esac
-
-          echo "=== release/ ==="
-          ls -la release
-          if [ -z "$(ls -A release)" ]; then
-            echo "No artifacts collected for $PLATFORM" >&2
-            exit 1
-          fi
-          COLLECT_EOF
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-release
-          path: release
-          if-no-files-found: error
-
   build-windows:
     name: Build (Windows nsis)
     needs: prepare
@@ -305,7 +185,7 @@ jobs:
               ;;
             windows)
               EXE=$(find_first "src-tauri/target/release/bundle/nsis" "*.exe")
-              if [ -n "$EXE" ]; then cp "$EXE" "release/astrbot-plus-${VERSION}-windows-x64-setup.exe"; fi
+              if [ -n "$EXE" ]; then cp "$EXE" "release/AstrbotPlus-${VERSION}-x64-setup.exe"; fi
               ;;
             android)
               BASE="src-tauri/gen/android/app/build/outputs/apk"
@@ -316,7 +196,7 @@ jobs:
               # release APK.
               APK=$(find_first "$BASE/arm64" "*-release.apk")
               if [ -z "$APK" ]; then APK=$(find_first "$BASE" "*-release.apk"); fi
-              if [ -n "$APK" ]; then cp "$APK" "release/astrbot-plus-${VERSION}-android-arm64.apk"; fi
+              if [ -n "$APK" ]; then cp "$APK" "release/AstrbotPlus-${VERSION}-arm64.apk"; fi
               ;;
             *)
               echo "unknown platform: $PLATFORM" >&2
@@ -878,7 +758,7 @@ jobs:
               ;;
             windows)
               EXE=$(find_first "src-tauri/target/release/bundle/nsis" "*.exe")
-              if [ -n "$EXE" ]; then cp "$EXE" "release/astrbot-plus-${VERSION}-windows-x64-setup.exe"; fi
+              if [ -n "$EXE" ]; then cp "$EXE" "release/AstrbotPlus-${VERSION}-x64-setup.exe"; fi
               ;;
             android)
               BASE="src-tauri/gen/android/app/build/outputs/apk"
@@ -889,7 +769,7 @@ jobs:
               # release APK.
               APK=$(find_first "$BASE/arm64" "*-release.apk")
               if [ -z "$APK" ]; then APK=$(find_first "$BASE" "*-release.apk"); fi
-              if [ -n "$APK" ]; then cp "$APK" "release/astrbot-plus-${VERSION}-android-arm64.apk"; fi
+              if [ -n "$APK" ]; then cp "$APK" "release/AstrbotPlus-${VERSION}-arm64.apk"; fi
               ;;
             *)
               echo "unknown platform: $PLATFORM" >&2
@@ -913,7 +793,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: [prepare, build-linux, build-windows, build-android]
+    needs: [prepare, build-windows, build-android]
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -930,7 +810,6 @@ jobs:
           name: ${{ needs.prepare.outputs.version }}
           body: ${{ needs.prepare.outputs.body }}
           files: |
-            artifacts/linux-release/*
             artifacts/windows-release/*
             artifacts/android-release/*
           draft: false
