@@ -49,6 +49,7 @@ export const useChatStore = defineStore("chat", () => {
   const search = ref("");
 
   let feedBound = false;
+  let focusBound = false;
   let feedOff: (() => void) | null = null;
 
   const filteredAgents = computed(() => {
@@ -204,6 +205,16 @@ export const useChatStore = defineStore("chat", () => {
     feedOff = settings.getSocket().on("message:new", (raw) => {
       if (raw && typeof raw === "object") receiveMessage(raw as HistoryMessage);
     });
+    // 插件（视图）侧启用/停用/删除机器人后主动广播，客户端据此实时刷新列表。
+    settings.getSocket().on("bots:changed", () => { void loadContacts(); });
+    if (!focusBound) {
+      focusBound = true;
+      // 回到客户端窗口 / 标签页恢复可见时同步一次，覆盖后台期间发生的变化。
+      window.addEventListener("focus", () => void loadContacts());
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) void loadContacts();
+      });
+    }
   }
 
   /** Pull the Agent (bot) directory from the companion plugin. */
@@ -216,6 +227,9 @@ export const useChatStore = defineStore("chat", () => {
       const bots = await settings.getSocket().listBots();
       for (const bot of bots) upsertAgent(bot);
       bindFeed();
+      // 首次同步后补齐每个会话的最近一条消息，使列表副标题在未进入会话前
+      // 也能显示最近消息（否则要点击进入才会加载历史）。
+      void Promise.all(bots.map((b) => loadHistory(b.id).catch(() => {})));
     } catch (e) {
       contactsError.value = e instanceof Error ? e.message : String(e);
     } finally {

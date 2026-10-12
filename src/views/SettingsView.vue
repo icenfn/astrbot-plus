@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { storeToRefs } from "pinia";
 import { useSettingsStore, type ThemeMode } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
 import { usePlatform } from "@/composables/usePlatform";
@@ -10,7 +9,6 @@ const settings = useSettingsStore();
 const chat = useChatStore();
 const { connected, connecting, lastError, connectionState, socketMode } =
   storeToRefs(settings);
-const { agents } = storeToRefs(chat);
 const { isTauri } = usePlatform();
 const { setAutoStart } = useWindow();
 
@@ -204,9 +202,6 @@ async function onAutoStart(value: boolean) {
         </v-card-text>
       </v-card>
 
-      <div v-if="connected" class="text-caption text-medium-emphasis px-1">
-        已同步：{{ agents.length }} 个 Agent
-      </div>
     </div>
   </div>
 </template>
