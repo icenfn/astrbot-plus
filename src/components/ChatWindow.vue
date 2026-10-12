@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { useEventListener } from "@vueuse/core";
 import { storeToRefs } from "pinia";
 import { useRouter } from "vue-router";
 import { useChatStore } from "@/stores/chat";
@@ -99,12 +100,10 @@ function onViewportResize() {
   if (pinned.value) void scrollToBottom(true);
 }
 onMounted(() => {
-  window.visualViewport?.addEventListener("resize", onViewportResize);
   void scrollToBottom(true);
 });
-onBeforeUnmount(() => {
-  window.visualViewport?.removeEventListener("resize", onViewportResize);
-});
+// 视口变化时保持滚动到底部（@vueuse/core 自动解绑）。
+useEventListener(() => window.visualViewport, "resize", onViewportResize);
 </script>
 
 <template>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { storeToRefs } from "pinia";
 import { useSettingsStore, type ThemeMode } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
 import { usePlatform } from "@/composables/usePlatform";

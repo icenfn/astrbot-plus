@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, watch } from "vue";
+import { onMounted, watch } from "vue";
+import { useEventListener } from "@vueuse/core";
 import { useTheme } from "vuetify";
 import { storeToRefs } from "pinia";
 import { useRouter } from "vue-router";
@@ -84,12 +85,10 @@ onMounted(async () => {
   }
   // Desktop: run in the background (hide instead of quitting) on close.
   installCloseHandler({ closeToTray: settings.settings.closeToTray });
-  window.addEventListener("android:back", onAndroidBack);
 });
 
-onBeforeUnmount(() => {
-  window.removeEventListener("android:back", onAndroidBack);
-});
+// Android 硬件返回键：交给 @vueuse/core，组件卸载时自动解绑。
+useEventListener(window, "android:back", onAndroidBack);
 </script>
 
 <template>

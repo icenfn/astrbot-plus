@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useEventListener } from "@vueuse/core";
 
 const props = defineProps<{ busy?: boolean }>();
 const emit = defineEmits<{ (e: "send", text: string): void }>();
@@ -63,19 +64,16 @@ function onViewportResize() {
   if (focused.value) reflow();
 }
 
-onMounted(() => {
-  window.visualViewport?.addEventListener("resize", onViewportResize);
-  window.visualViewport?.addEventListener("scroll", onViewportResize);
-  // Fallback for WebViews where the visual viewport events are flaky.
-  window.addEventListener("resize", onViewportResize);
-  resize();
-});
+onMounted(resize);
+
+// 视口监听交给 @vueuse/core，作用域销毁时自动解绑。
+useEventListener(() => window.visualViewport, "resize", onViewportResize);
+useEventListener(() => window.visualViewport, "scroll", onViewportResize);
+// Fallback for WebViews where the visual viewport events are flaky.
+useEventListener(window, "resize", onViewportResize);
 
 onBeforeUnmount(() => {
   timers.forEach((id) => window.clearTimeout(id));
-  window.visualViewport?.removeEventListener("resize", onViewportResize);
-  window.visualViewport?.removeEventListener("scroll", onViewportResize);
-  window.removeEventListener("resize", onViewportResize);
   document.documentElement.classList.remove("composer-focused");
 });
 

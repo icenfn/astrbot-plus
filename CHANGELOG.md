@@ -1,3 +1,15 @@
+## v0.4.10
+
+### 修复
+- 🛠️ **修复构建失败（#28）**：上一版移除设置页同步计数时，误删了 `SettingsView.vue` 中仍在使用的 `storeToRefs` 导入，导致 `vue-tsc` 报 `TS2304: Cannot find name 'storeToRefs'` 并使 Release 构建失败。本次恢复该导入，`vue-tsc --noEmit` 与 `vite build` 均已通过。
+
+### 优化
+- ♻️ **引入 VueUse 减少样板代码**：使用 `@vueuse/core` 的 `useEventListener` 统一接管窗口/文档事件监听，替代手写 `addEventListener` + `onBeforeUnmount` 解绑：
+  - `stores/chat.ts`：窗口 `focus` 与 `visibilitychange` 监听
+  - `App.vue`：Android 硬件返回键 `android:back` 监听
+  - `components/MessageComposer.vue`、`components/ChatWindow.vue`：`visualViewport` 的 `resize`/`scroll` 监听
+  监听随组件作用域自动解绑，减少重复的清理代码、更易维护。
+
 ## v0.4.9
 
 ### 修复

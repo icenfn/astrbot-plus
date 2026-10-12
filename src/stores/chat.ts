@@ -13,6 +13,7 @@
  */
 import { defineStore } from "pinia";
 import { computed, reactive, ref } from "vue";
+import { useEventListener } from "@vueuse/core";
 import type { AgentRow, ChatMessage, HistoryMessage } from "@/api/types";
 import { notify } from "@/composables/useNotify";
 import {
@@ -210,8 +211,9 @@ export const useChatStore = defineStore("chat", () => {
     if (!focusBound) {
       focusBound = true;
       // 回到客户端窗口 / 标签页恢复可见时同步一次，覆盖后台期间发生的变化。
-      window.addEventListener("focus", () => void loadContacts());
-      document.addEventListener("visibilitychange", () => {
+      // 交给 @vueuse/core，作用域销毁时自动解绑。
+      useEventListener(window, "focus", () => void loadContacts());
+      useEventListener(document, "visibilitychange", () => {
         if (!document.hidden) void loadContacts();
       });
     }
