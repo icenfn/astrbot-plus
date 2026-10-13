@@ -5,5 +5,3 @@ dist-ssr/
 
 # Rust / Tauri build output
 src-tauri/target/
-# Generated native mobile projects (regenerate with `npm run tauri android init`)
-src-tauri/gen/

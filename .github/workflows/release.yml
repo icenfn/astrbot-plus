@@ -3,6 +3,9 @@ name: Release
 # 手动触发，或推送 v* 标签时触发。
 # 从 CHANGELOG.md 提取最新版本号与发布说明，构建 Windows(nsis) 与 Android(arm64)，
 # 汇总为一次 GitHub Release。
+#
+# Android 原生工程（src-tauri/gen/android）已作为源码提交进仓库：manifest、MainActivity、
+# 图标、ABI、cleartext 等定制都直接写在模板里，构建时无需再 `android init` + 打补丁。
 on:
   workflow_dispatch:
   push:
@@ -99,14 +102,6 @@ jobs:
           packages: "platform-tools platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125"
       - name: Install dependencies
         run: npm ci
-      - name: Initialize Android project
-        run: npx tauri android init
-      - name: Patch Android project
-        run: |
-          python3 .github/scripts/android_prepare.py \
-            --project src-tauri/gen/android \
-            --version "${{ needs.prepare.outputs.version }}" \
-            --icons src-tauri/icons/android
       - name: Build APK (arm64)
         run: npx tauri android build --apk --target aarch64
         env:
@@ -127,7 +122,7 @@ jobs:
             alias="astrbotplus"; pass="android"
           fi
           BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
-          APK=$(find src-tauri/gen/android -name "*.apk" | head -1)
+          APK=$(find src-tauri/gen/android -name "*-release.apk" | head -1)
           mkdir -p release
           "$BT/zipalign" -f -p 4 "$APK" /tmp/aligned.apk
           "$BT/apksigner" sign --ks /tmp/ks.jks \

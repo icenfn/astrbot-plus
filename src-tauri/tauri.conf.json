@@ -51,8 +51,7 @@
     "resources": {},
     "copyright": "Copyright © 2025 astrbot-plus contributors",
     "android": {
-      "minSdkVersion": 24,
-      "versionCode": 1
+      "minSdkVersion": 24
     }
   },
   "plugins": {}
