@@ -1,12 +1,8 @@
 name: Release
 
 # 手动触发，或推送 v* 标签时触发。
-# 从 CHANGELOG.md 提取最新版本号与发布说明，构建
-# Linux(deb/rpm, arm64) / Windows(nsis) / Android(arm64)，并汇总为一次 GitHub Release。
-#
-# 说明：本工作流不再依赖仓库内的 scripts/ 目录，所有打包辅助逻辑（依赖安装重试、
-# 产物收集、Android SDK 配置、签名密钥准备、Android 工程补丁）都内联在下方步骤中，
-# 便于仓库保持精简、单一职责。
+# 从 CHANGELOG.md 提取最新版本号与发布说明，构建 Windows(nsis) 与 Android(arm64)，
+# 汇总为一次 GitHub Release。
 on:
   workflow_dispatch:
   push:
@@ -20,85 +16,29 @@ jobs:
     name: Prepare release metadata
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.ver.outputs.version }}
-      body: ${{ steps.ver.outputs.body }}
-      should_release: ${{ steps.ver.outputs.should_release }}
+      version: ${{ steps.meta.outputs.version }}
+      body: ${{ steps.meta.outputs.body }}
+      should_release: ${{ steps.meta.outputs.should_release }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Extract version + body from CHANGELOG.md
-        id: ver
+        id: meta
         run: |
-          python3 - <<'CHANGELOG_EOF' >> "$GITHUB_OUTPUT"
-          #!/usr/bin/env python3
-          """Emit release version + body (from CHANGELOG.md) as GitHub Actions outputs.
-
-          Writes `version=`, `body<<EOF ... EOF` and `should_release=` to stdout so the
-          workflow can do `python3 scripts/extract_changelog.py >> "$GITHUB_OUTPUT"`.
-          """
-          from __future__ import annotations
-
-          import os
-          import subprocess
-          import sys
-
-          CHANGELOG = "CHANGELOG.md"
-
-
-          def read_changelog() -> str:
-              with open(CHANGELOG, encoding="utf-8") as f:
-                  return f.read()
-
-
-          def parse(content: str) -> tuple[str, str]:
-              lines = content.splitlines()
-              version = ""
-              body_lines: list[str] = []
-              capture = False
-              for line in lines:
-                  if line.startswith("## ") and not capture:
-                      version = line[3:].strip()
-                      capture = True
-                      continue
-                  if capture and line.startswith("## "):
-                      break
-                  if capture:
-                      body_lines.append(line)
-              return version, "\n".join(body_lines).strip()
-
-
-          def tag_exists(tag: str) -> bool:
-              # When triggered by a tag push, GITHUB_REF_TYPE == "tag".
-              if os.environ.get("GITHUB_REF_TYPE") == "tag":
-                  return False
-              try:
-                  subprocess.run(
-                      ["git", "rev-parse", tag],
-                      check=True,
-                      stdout=subprocess.DEVNULL,
-                      stderr=subprocess.DEVNULL,
-                  )
-                  return True
-              except Exception:
-                  return False
-
-
-          def main() -> None:
-              version, body = parse(read_changelog())
-              if not version:
-                  sys.exit("CHANGELOG.md: no '## <version>' section found")
-              should = "false" if tag_exists(version) else "true"
-              print(f"version={version}")
-              print("body<<EOF")
-              print(body)
-              print("EOF")
-              print(f"should_release={should}")
-
-
-          if __name__ == "__main__":
-              main()
-          CHANGELOG_EOF
+          version=$(grep -m1 '^## ' CHANGELOG.md | sed 's/^##[[:space:]]*//')
+          body=$(awk -v v="$version" '$0 ~ "^## " v "$" {c=1; next} c && /^## / {exit} c' CHANGELOG.md)
+          should=true
+          if [ "$GITHUB_REF_TYPE" != "tag" ] && git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
+            should=false
+          fi
+          {
+            echo "version=$version"
+            echo "body<<EOF"
+            echo "$body"
+            echo "EOF"
+            echo "should_release=$should"
+          } >> "$GITHUB_OUTPUT"
 
   build-windows:
     name: Build (Windows nsis)
@@ -107,114 +47,27 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
       - name: Install dependencies
-        shell: bash
-        run: |
-          bash -s <<'NPMCI_EOF'
-          #!/usr/bin/env bash
-          # Resilient `npm ci` for CI.
-          #
-          # Runners occasionally hit transient `ECONNRESET` / read timeouts while talking
-          # to the npm registry, which previously failed the whole release. This wrapper
-          # raises npm's own retry/timeout budget and retries the install a few times so a
-          # single flaky connection no longer aborts the build.
-          set -uo pipefail
-
-          export npm_config_fetch_retries="${npm_config_fetch_retries:-5}"
-          export npm_config_fetch_retry_mintimeout="${npm_config_fetch_retry_mintimeout:-20000}"
-          export npm_config_fetch_retry_maxtimeout="${npm_config_fetch_retry_maxtimeout:-120000}"
-          export npm_config_fetch_timeout="${npm_config_fetch_timeout:-300000}"
-          export npm_config_maxsockets="${npm_config_maxsockets:-10}"
-
-          attempts="${NPM_CI_ATTEMPTS:-5}"
-
-          for attempt in $(seq 1 "$attempts"); do
-            echo "==> npm ci attempt ${attempt}/${attempts}"
-            # `--prefer-offline` uses the restored ~/.npm cache first (setup-node caches it)
-            # and only reaches the network for what is missing.
-            if npm ci --no-audit --no-fund --prefer-offline; then
-              echo "==> npm ci succeeded on attempt ${attempt}"
-              exit 0
-            fi
-            echo "==> npm ci failed on attempt ${attempt}; retrying in 15s..." >&2
-            sleep 15
-          done
-
-          echo "==> npm ci failed after ${attempts} attempts" >&2
-          exit 1
-          NPMCI_EOF
+        run: npm ci
       - name: Build Windows installer (nsis)
         run: npm run tauri build -- --bundles nsis
-      - name: Collect + rename installer
-        shell: bash
+      - name: Rename installer
+        shell: pwsh
         run: |
-          bash -s -- windows "${{ needs.prepare.outputs.version }}" <<'COLLECT_EOF'
-          #!/usr/bin/env bash
-          # Collect and rename build outputs into ./release for the GitHub Release.
-          # Usage: scripts/collect_artifacts.sh <linux|windows|android> <version>
-          set -euo pipefail
-
-          PLATFORM="${1:?platform}"
-          VERSION="${2:?version}"
-          mkdir -p release
-
-          # Return the first file matching a glob under a directory.
-          #
-          # Tolerates a MISSING directory and `head` closing the pipe early (SIGPIPE).
-          # Both would otherwise make `find` exit non-zero; combined with `set -o pipefail`
-          # and `set -e`, that aborts the whole script *silently* via the `VAR=$(...)`
-          # assignment. This was the actual reason the Android collection failed: the APK
-          # is emitted under apk/universal/ (single-target build), so the apk/arm64/ probe
-          # hit a missing directory and killed the script before it could log anything.
-          find_first() {
-            [ -d "$1" ] || return 0
-            find "$1" -name "$2" 2>/dev/null | head -1 || true
-          }
-
-          case "$PLATFORM" in
-            linux)
-              DEB=$(find_first "src-tauri/target/release/bundle/deb" "*.deb")
-              RPM=$(find_first "src-tauri/target/release/bundle/rpm" "*.rpm")
-              if [ -n "$DEB" ]; then cp "$DEB" "release/astrbot-plus-${VERSION}-linux-arm64.deb"; fi
-              if [ -n "$RPM" ]; then cp "$RPM" "release/astrbot-plus-${VERSION}-linux-aarch64.rpm"; fi
-              ;;
-            windows)
-              EXE=$(find_first "src-tauri/target/release/bundle/nsis" "*.exe")
-              if [ -n "$EXE" ]; then cp "$EXE" "release/AstrbotPlus-${VERSION}-x64-setup.exe"; fi
-              ;;
-            android)
-              BASE="src-tauri/gen/android/app/build/outputs/apk"
-              # A `--split-per-abi` build names the dir after the ABI (`arm64`); a single
-              # `--target aarch64` build emits one universal APK under `universal`. Both
-              # contain only arm64-v8a here (the Android ABIs are restricted in
-              # android_prepare.py), so prefer the explicit arm64 dir and fall back to any
-              # release APK.
-              APK=$(find_first "$BASE/arm64" "*-release.apk")
-              if [ -z "$APK" ]; then APK=$(find_first "$BASE" "*-release.apk"); fi
-              if [ -n "$APK" ]; then cp "$APK" "release/AstrbotPlus-${VERSION}-arm64.apk"; fi
-              ;;
-            *)
-              echo "unknown platform: $PLATFORM" >&2
-              exit 1
-              ;;
-          esac
-
-          echo "=== release/ ==="
-          ls -la release
-          if [ -z "$(ls -A release)" ]; then
-            echo "No artifacts collected for $PLATFORM" >&2
-            exit 1
-          fi
-          COLLECT_EOF
+          $exe = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
+          Rename-Item $exe.FullName "AstrbotPlus-${{ needs.prepare.outputs.version }}-x64-setup.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: release
+          path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
   build-android:
@@ -222,573 +75,70 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-22.04
-    env:
-      ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
-      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Rust toolchain + Android target (arm64 only)
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
-      - name: Configure Android SDK (preinstalled on runner)
-        run: |
-          bash -s <<'SDK_EOF'
-          #!/usr/bin/env bash
-          # Configure the Android SDK that is preinstalled on GitHub's ubuntu runners.
-          # Avoids android-actions/setup-android@v3, which fails trying to install the
-          # now-removed `tools` package ("Failed to find package 'tools'").
-          set -euo pipefail
-
-          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
-          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
-
-          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -1)"
-          fi
-          echo "Using sdkmanager: $SDKMANAGER"
-
-          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1 || true
-          ls "$SDK/platforms" 2>/dev/null || true
-          SDK_EOF
-
-      - name: Android NDK r26b
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          ndk-version: r26b
-          link-to-sdk: true
-
+          targets: aarch64-linux-android
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 9477386
+          accept-android-sdk-licenses: true
+          packages: "platform-tools platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125"
       - name: Install dependencies
-        run: |
-          bash -s <<'NPMCI_EOF'
-          #!/usr/bin/env bash
-          # Resilient `npm ci` for CI.
-          #
-          # Runners occasionally hit transient `ECONNRESET` / read timeouts while talking
-          # to the npm registry, which previously failed the whole release. This wrapper
-          # raises npm's own retry/timeout budget and retries the install a few times so a
-          # single flaky connection no longer aborts the build.
-          set -uo pipefail
-
-          export npm_config_fetch_retries="${npm_config_fetch_retries:-5}"
-          export npm_config_fetch_retry_mintimeout="${npm_config_fetch_retry_mintimeout:-20000}"
-          export npm_config_fetch_retry_maxtimeout="${npm_config_fetch_retry_maxtimeout:-120000}"
-          export npm_config_fetch_timeout="${npm_config_fetch_timeout:-300000}"
-          export npm_config_maxsockets="${npm_config_maxsockets:-10}"
-
-          attempts="${NPM_CI_ATTEMPTS:-5}"
-
-          for attempt in $(seq 1 "$attempts"); do
-            echo "==> npm ci attempt ${attempt}/${attempts}"
-            # `--prefer-offline` uses the restored ~/.npm cache first (setup-node caches it)
-            # and only reaches the network for what is missing.
-            if npm ci --no-audit --no-fund --prefer-offline; then
-              echo "==> npm ci succeeded on attempt ${attempt}"
-              exit 0
-            fi
-            echo "==> npm ci failed on attempt ${attempt}; retrying in 15s..." >&2
-            sleep 15
-          done
-
-          echo "==> npm ci failed after ${attempts} attempts" >&2
-          exit 1
-          NPMCI_EOF
-
+        run: npm ci
       - name: Initialize Android project
         run: npx tauri android init
-
-      - name: Prepare signing keystore
+      - name: Patch Android project
         run: |
-          bash -s <<'KEYSTORE_EOF'
-          #!/usr/bin/env bash
-          # Produce a keystore at $RUNNER_TEMP/release.keystore for Android signing.
-          # Priority: repository secret (base64) > committed stable debug keystore.
-          # The committed keystore guarantees the same signing key across builds so
-          # upgrading an installed APK does not fail with a "package conflict".
-          set -euo pipefail
-
-          DEST="${RUNNER_TEMP:-/tmp}/release.keystore"
-
-          if [ -n "${ANDROID_KEY_BASE64:-}" ]; then
-            base64 -d <<< "$ANDROID_KEY_BASE64" > "$DEST"
-            echo "Signing: using secret ANDROID_KEY_BASE64"
-          else
-            cp android/debug.keystore "$DEST"
-            echo "Signing: using committed android/debug.keystore"
-          fi
-
-          ls -la "$DEST"
-          KEYSTORE_EOF
-
-      - name: Prepare Android project (icons / version / manifest / MainActivity / signing)
-        run: |
-          python3 - --project src-tauri/gen/android \
+          python3 .github/scripts/android_prepare.py \
+            --project src-tauri/gen/android \
             --version "${{ needs.prepare.outputs.version }}" \
-            --icons src-tauri/icons/android \
-            --keystore "$RUNNER_TEMP/release.keystore" <<'ANDROID_PREPARE_EOF'
-          #!/usr/bin/env python3
-          """Prepare the generated Tauri Android project for a release build.
-
-          Tauri's `tauri android init` emits a template project. This script applies the
-          small, deterministic patches we need so the resulting APK:
-            * allows cleartext HTTP (so a self-hosted AstrBot over http:// is reachable),
-            * uses our custom launcher icons (Tauri ships template defaults),
-            * pads for system bars and forwards the hardware back button to the WebView,
-            * carries the correct versionCode / versionName,
-            * is signed (release signingConfig wired from keystore.properties).
-
-          Usage:
-            python3 scripts/android_prepare.py --project src-tauri/gen/android \
-                --version v0.1.0 --icons src-tauri/icons/android
-          """
-          from __future__ import annotations
-
-          import argparse
-          import glob
-          import os
-          import re
-          import shutil
-          import subprocess
-          import sys
-
-
-          def log(msg: str) -> None:
-              print(f"[android_prepare] {msg}")
-
-
-          def patch_manifest_cleartext(project: str) -> None:
-              """Allow cleartext HTTP so a self-hosted AstrBot over http:// is reachable.
-
-              The earlier implementation patched the manifest with a naive
-              ``content.replace("<application ", ...)`` — which silently does nothing when
-              the generated template writes ``<application`` followed by a newline instead
-              of a space. The script then still logged "cleartext HTTP enabled", so the
-              broken APK shipped and the Android WebView kept blocking cleartext http/ws
-              requests (the client's opaque "xhr poll error"). This version:
-
-                * forces the ``usesCleartextTraffic`` attribute value to a literal
-                  ``true`` (Tauri's template ships it as a Gradle placeholder
-                  ``${usesCleartextTraffic}``), handling a missing attribute too, and
-                * hard-fails the build when the patch cannot be verified, so a broken
-                  APK can never be published silently again.
-              """
-              app_dir = os.path.join(project, "app", "src", "main")
-              manifest = os.path.join(app_dir, "AndroidManifest.xml")
-              with open(manifest, encoding="utf-8") as f:
-                  content = f.read()
-
-              # Tauri's template already ships the attribute with a Gradle placeholder
-              # value:  android:usesCleartextTraffic="${usesCleartextTraffic}"
-              # Force the value to a literal "true" so cleartext http:// and ws:// are
-              # allowed (this client exists to talk to a self-hosted AstrBot). Handles the
-              # placeholder, an explicit "false", or a missing attribute alike.
-              attr_re = re.compile(r'android:usesCleartextTraffic="[^"]*"')
-              if attr_re.search(content):
-                  content = attr_re.sub('android:usesCleartextTraffic="true"', content, count=1)
-              else:
-                  idx = content.find("<application")
-                  if idx == -1:
-                      raise SystemExit(
-                          "[android_prepare] ERROR: <application> tag not found in manifest"
-                      )
-                  insert_at = idx + len("<application")
-                  content = (
-                      content[:insert_at]
-                      + '\n        android:usesCleartextTraffic="true"'
-                      + content[insert_at:]
-                  )
-              with open(manifest, "w", encoding="utf-8") as f:
-                  f.write(content)
-
-              # Hard verification: fail loudly if the patch did not take.
-              with open(manifest, encoding="utf-8") as f:
-                  final = f.read()
-              if 'usesCleartextTraffic="true"' not in final:
-                  raise SystemExit(
-                      "[android_prepare] ERROR: failed to enable cleartext traffic in manifest"
-                  )
-              log("AndroidManifest: cleartext HTTP enabled (usesCleartextTraffic=true)")
-
-
-          def patch_manifest_softinput(project: str) -> None:
-              """Resize the WebView when the soft keyboard opens.
-
-              Without this the on-screen keyboard overlays the message composer on
-              Android. We FORCE ``android:windowSoftInputMode="adjustResize"`` on the
-              MainActivity so the system shrinks the WebView and keeps the composer above
-              the keyboard. The value is overwritten even when the generated template
-              already set a different one (e.g. ``adjustNothing`` / ``adjustPan`` /
-              ``stateUnspecified``), and the patch is verified afterwards so a silent
-              failure can never ship a broken APK again.
-              """
-              path = os.path.join(project, "app", "src", "main", "AndroidManifest.xml")
-              with open(path, encoding="utf-8") as f:
-                  content = f.read()
-
-              attr = 'android:windowSoftInputMode="adjustResize"'
-              attr_re = re.compile(r'android:windowSoftInputMode="[^"]*"')
-              if attr_re.search(content):
-                  content = attr_re.sub(attr, content, count=1)
-              else:
-                  m = re.search(
-                      r'(<activity[^>]*android:name="[^"]*MainActivity"[^>]*?)(\s*/?>)',
-                      content,
-                      re.S,
-                  )
-                  if not m:
-                      raise SystemExit(
-                          "[android_prepare] ERROR: MainActivity activity tag not found in manifest"
-                      )
-                  content = content[: m.end(1)] + " " + attr + content[m.end(1):]
-
-              with open(path, "w", encoding="utf-8") as f:
-                  f.write(content)
-
-              with open(path, encoding="utf-8") as f:
-                  final = f.read()
-              if 'windowSoftInputMode="adjustResize"' not in final:
-                  raise SystemExit(
-                      "[android_prepare] ERROR: failed to set windowSoftInputMode=adjustResize"
-                  )
-              log("AndroidManifest: windowSoftInputMode=adjustResize (forced)")
-
-          def override_icons(project: str, icons_dir: str) -> None:
-              res = os.path.join(project, "app", "src", "main", "res")
-              if not os.path.isdir(icons_dir):
-                  log(f"icons dir missing, skip: {icons_dir}")
-                  return
-              for entry in os.listdir(icons_dir):
-                  src = os.path.join(icons_dir, entry)
-                  dst = os.path.join(res, entry)
-                  if os.path.isdir(src):
-                      shutil.copytree(src, dst, dirs_exist_ok=True)
-                  else:
-                      shutil.copy2(src, dst)
-              found = glob.glob(os.path.join(res, "**", "ic_launcher*"), recursive=True)
-              log(f"icons overridden ({len(found)} ic_launcher* resources)")
-
-
-          MAIN_ACTIVITY_TEMPLATE = '''\
-          package {pkg}
-
-          import android.os.Bundle
-
-          class MainActivity : TauriActivity() {{
-            override fun onCreate(savedInstanceState: Bundle?) {{
-              super.onCreate(savedInstanceState)
-              window.decorView.setOnApplyWindowInsetsListener {{ v: android.view.View, insets: android.view.WindowInsets ->
-                if (android.os.Build.VERSION.SDK_INT >= 30) {{
-                  val bars = insets.getInsets(
-                    android.view.WindowInsets.Type.systemBars() or
-                    android.view.WindowInsets.Type.displayCutout()
-                  )
-                  v.setPadding(0, bars.top, 0, bars.bottom)
-                }} else {{
-                  v.setPadding(0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom)
-                }}
-                insets
-              }}
-              window.decorView.requestApplyInsets()
-              requestBackgroundPermissions()
-            }}
-
-
-            // Hardware back button: dispatch an `android:back` event to the frontend so it
-            // can close a conversation / go back / exit, instead of killing the Activity.
-            @Deprecated("Deprecated in Java")
-            override fun onBackPressed() {{
-              notifyWebviewBack()
-            }}
-
-            private fun requestBackgroundPermissions() {{
-              try {{
-                if (android.os.Build.VERSION.SDK_INT >= 33) {{
-                  requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
-                }}
-                val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
-                if (!pm.isIgnoringBatteryOptimizations(packageName)) {{
-                  val intent = android.content.Intent(
-                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                  )
-                  intent.data = android.net.Uri.parse("package:$packageName")
-                  startActivity(intent)
-                }}
-              }} catch (_: Exception) {{}}
-            }}
-
-            private fun notifyWebviewBack() {{
-              try {{
-                var web: android.webkit.WebView? = null
-                fun scan(v: android.view.View) {{
-                  if (web != null) return
-                  if (v is android.webkit.WebView) {{ web = v; return }}
-                  if (v is android.view.ViewGroup) {{
-                    for (i in 0 until v.childCount) scan(v.getChildAt(i))
-                  }}
-                }}
-                scan(window.decorView)
-                web?.post {{
-                  web!!.evaluateJavascript(
-                    "window.dispatchEvent(new CustomEvent('android:back'))", null)
-                }}
-              }} catch (_: Exception) {{
-                finish()
-              }}
-            }}
-          }}
-          '''
-
-
-          def patch_main_activity(project: str) -> None:
-              matches = glob.glob(
-                  os.path.join(project, "app", "src", "main", "java", "**", "MainActivity.kt"),
-                  recursive=True,
-              )
-              if not matches:
-                  log("MainActivity.kt not found, skip")
-                  return
-              path = matches[0]
-              with open(path, encoding="utf-8") as f:
-                  src = f.read()
-              pkg_line = next(
-                  (ln for ln in src.splitlines() if ln.startswith("package ")), "package app.astrbot.plus"
-              )
-              pkg = pkg_line.replace("package ", "").replace(";", "").strip()
-              with open(path, "w", encoding="utf-8") as f:
-                  f.write(MAIN_ACTIVITY_TEMPLATE.format(pkg=pkg))
-              log(f"MainActivity patched (package {pkg}): insets + android:back")
-
-
-          def patch_manifest_background(project: str) -> None:
-              """Declare the permissions needed to keep the socket connection alive while
-              the app is in the background / screen off, and to post message notifications.
-
-              Android otherwise suspends the process (and its Socket.io connection) once
-              the app is no longer foregrounded. These declarations — together with the
-              runtime battery-optimisation exemption requested in MainActivity — let the
-              client keep running and reconnecting in the background.
-              """
-              app_dir = os.path.join(project, "app", "src", "main")
-              manifest = os.path.join(app_dir, "AndroidManifest.xml")
-              with open(manifest, encoding="utf-8") as f:
-                  content = f.read()
-
-              perms = [
-                  "android.permission.INTERNET",
-                  "android.permission.ACCESS_NETWORK_STATE",
-                  "android.permission.WAKE_LOCK",
-                  "android.permission.FOREGROUND_SERVICE",
-                  "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
-                  "android.permission.POST_NOTIFICATIONS",
-                  "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS",
-              ]
-              missing = [p for p in perms if 'android:name="%s"' % p not in content]
-              if not missing:
-                  log("AndroidManifest: background permissions already present")
-                  return
-              lines = "".join('    <uses-permission android:name="%s" android:maxSdkVersion="34" />\n' % p
-                              if p.endswith("FOREGROUND_SERVICE_DATA_SYNC")
-                              else '    <uses-permission android:name="%s" />\n' % p
-                              for p in missing)
-              idx = content.find("<application")
-              if idx == -1:
-                  raise SystemExit("[android_prepare] ERROR: <application> tag not found")
-              content = content[:idx] + lines + content[idx:]
-              with open(manifest, "w", encoding="utf-8") as f:
-                  f.write(content)
-              log("AndroidManifest: added background permissions: %s" % ", ".join(missing))
-
-
-          def set_version(project: str, version: str) -> None:
-              clean = version.lstrip("v")
-              parts = (clean.split(".") + ["0", "0", "0"])[:3]
-              try:
-                  major, minor, patch = (int(x) for x in parts)
-              except ValueError:
-                  major, minor, patch = 0, 1, 0
-              code = major * 10000 + minor * 100 + patch
-              prop = os.path.join(project, "app", "tauri.properties")
-              with open(prop, "w", encoding="utf-8") as f:
-                  f.write(f"tauri.android.versionCode={code}\n")
-                  f.write(f"tauri.android.versionName={clean}\n")
-              log(f"version set: versionCode={code} versionName={clean}")
-
-
-          def restrict_abis(project: str) -> None:
-              """Only build arm64-v8a (skip 32-bit armv7 and x86 emulator ABIs)."""
-              for rel in ("gradle.properties", os.path.join("app", "gradle.properties")):
-                  path = os.path.join(project, rel)
-                  with open(path, "a", encoding="utf-8") as f:
-                      f.write("abiList=arm64-v8a\n")
-                      f.write("archList=arm64\n")
-                      f.write("targetList=aarch64\n")
-              log("ABIs restricted to arm64-v8a")
-
-
-          def wire_signing(project: str) -> None:
-              path = os.path.join(project, "app", "build.gradle.kts")
-              with open(path, encoding="utf-8") as f:
-                  s = f.read()
-              if "import java.util.Properties" not in s:
-                  s = "import java.util.Properties\n" + s
-              if "signingConfigs" not in s:
-                  block = (
-                      "    signingConfigs {\n"
-                      '        if (rootProject.file("keystore.properties").exists()) {\n'
-                      "            val keystoreProperties = Properties().apply {\n"
-                      '                load(rootProject.file("keystore.properties").inputStream())\n'
-                      "            }\n"
-                      '            create("release") {\n'
-                      '                storeFile = file(keystoreProperties.getProperty("storeFile"))\n'
-                      '                storePassword = keystoreProperties.getProperty("storePassword")\n'
-                      '                keyAlias = keystoreProperties.getProperty("keyAlias")\n'
-                      '                keyPassword = keystoreProperties.getProperty("keyPassword")\n'
-                      "            }\n"
-                      "        }\n"
-                      "    }\n"
-                  )
-                  marker = "    buildTypes {"
-                  if marker not in s:
-                      sys.exit("build.gradle.kts: `buildTypes {` marker not found")
-                  s = s.replace(marker, block + marker, 1)
-              rel = 'getByName("release") {'
-              if rel in s and 'signingConfig = signingConfigs.findByName("release")' not in s:
-                  s = s.replace(
-                      rel, rel + '\n            signingConfig = signingConfigs.findByName("release")', 1
-                  )
-              with open(path, "w", encoding="utf-8") as f:
-                  f.write(s)
-              log("Gradle: release signingConfig wired")
-
-
-          def main() -> None:
-              ap = argparse.ArgumentParser()
-              ap.add_argument("--project", required=True)
-              ap.add_argument("--version", default="v0.1.3")
-              ap.add_argument("--icons", default="src-tauri/icons/android")
-              ap.add_argument("--keystore", help="path to keystore file (written to keystore.properties)")
-              ap.add_argument("--alias", default="astrbotplus")
-              ap.add_argument("--password", default="android")
-              args = ap.parse_args()
-
-              patch_manifest_cleartext(args.project)
-              patch_manifest_softinput(args.project)
-              patch_manifest_background(args.project)
-              override_icons(args.project, args.icons)
-              patch_main_activity(args.project)
-              set_version(args.project, args.version)
-              restrict_abis(args.project)
-
-              if args.keystore:
-                  props = os.path.join(args.project, "keystore.properties")
-                  with open(props, "w", encoding="utf-8") as f:
-                      f.write(f"keyAlias={args.alias}\n")
-                      f.write(f"keyPassword={args.password}\n")
-                      f.write(f"storeFile={os.path.abspath(args.keystore)}\n")
-                      f.write(f"storePassword={args.password}\n")
-                  log(f"keystore.properties written (storeFile={args.keystore})")
-              wire_signing(args.project)
-              log("done")
-
-
-          if __name__ == "__main__":
-              main()
-          ANDROID_PREPARE_EOF
-
-      - name: Build Android APK (arm64)
+            --icons src-tauri/icons/android
+      - name: Build APK (arm64)
         run: npx tauri android build --apk --target aarch64
         env:
-          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-
-      - name: Collect + rename APKs
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.1.10909125
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.1.10909125
+      - name: Sign + rename APK
+        env:
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          bash -s -- android "${{ needs.prepare.outputs.version }}" <<'COLLECT_EOF'
-          #!/usr/bin/env bash
-          # Collect and rename build outputs into ./release for the GitHub Release.
-          # Usage: scripts/collect_artifacts.sh <linux|windows|android> <version>
           set -euo pipefail
-
-          PLATFORM="${1:?platform}"
-          VERSION="${2:?version}"
-          mkdir -p release
-
-          # Return the first file matching a glob under a directory.
-          #
-          # Tolerates a MISSING directory and `head` closing the pipe early (SIGPIPE).
-          # Both would otherwise make `find` exit non-zero; combined with `set -o pipefail`
-          # and `set -e`, that aborts the whole script *silently* via the `VAR=$(...)`
-          # assignment. This was the actual reason the Android collection failed: the APK
-          # is emitted under apk/universal/ (single-target build), so the apk/arm64/ probe
-          # hit a missing directory and killed the script before it could log anything.
-          find_first() {
-            [ -d "$1" ] || return 0
-            find "$1" -name "$2" 2>/dev/null | head -1 || true
-          }
-
-          case "$PLATFORM" in
-            linux)
-              DEB=$(find_first "src-tauri/target/release/bundle/deb" "*.deb")
-              RPM=$(find_first "src-tauri/target/release/bundle/rpm" "*.rpm")
-              if [ -n "$DEB" ]; then cp "$DEB" "release/astrbot-plus-${VERSION}-linux-arm64.deb"; fi
-              if [ -n "$RPM" ]; then cp "$RPM" "release/astrbot-plus-${VERSION}-linux-aarch64.rpm"; fi
-              ;;
-            windows)
-              EXE=$(find_first "src-tauri/target/release/bundle/nsis" "*.exe")
-              if [ -n "$EXE" ]; then cp "$EXE" "release/AstrbotPlus-${VERSION}-x64-setup.exe"; fi
-              ;;
-            android)
-              BASE="src-tauri/gen/android/app/build/outputs/apk"
-              # A `--split-per-abi` build names the dir after the ABI (`arm64`); a single
-              # `--target aarch64` build emits one universal APK under `universal`. Both
-              # contain only arm64-v8a here (the Android ABIs are restricted in
-              # android_prepare.py), so prefer the explicit arm64 dir and fall back to any
-              # release APK.
-              APK=$(find_first "$BASE/arm64" "*-release.apk")
-              if [ -z "$APK" ]; then APK=$(find_first "$BASE" "*-release.apk"); fi
-              if [ -n "$APK" ]; then cp "$APK" "release/AstrbotPlus-${VERSION}-arm64.apk"; fi
-              ;;
-            *)
-              echo "unknown platform: $PLATFORM" >&2
-              exit 1
-              ;;
-          esac
-
-          echo "=== release/ ==="
-          ls -la release
-          if [ -z "$(ls -A release)" ]; then
-            echo "No artifacts collected for $PLATFORM" >&2
-            exit 1
+          if [ -n "${ANDROID_KEY_BASE64:-}" ]; then
+            echo "$ANDROID_KEY_BASE64" | base64 -d > /tmp/ks.jks
+            alias="$ANDROID_KEY_ALIAS"; pass="$ANDROID_KEY_PASSWORD"
+          else
+            cp android/debug.keystore /tmp/ks.jks
+            alias="astrbotplus"; pass="android"
           fi
-          COLLECT_EOF
-
+          BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
+          APK=$(find src-tauri/gen/android -name "*.apk" | head -1)
+          mkdir -p release
+          "$BT/zipalign" -f -p 4 "$APK" /tmp/aligned.apk
+          "$BT/apksigner" sign --ks /tmp/ks.jks \
+            --ks-pass pass:"$pass" --ks-key-alias "$alias" --key-pass pass:"$pass" \
+            /tmp/aligned.apk
+          cp /tmp/aligned.apk "release/AstrbotPlus-${{ needs.prepare.outputs.version }}-arm64.apk"
+          ls -la release
       - uses: actions/upload-artifact@v4
         with:
           name: android-release
-          path: release
+          path: release/*.apk
           if-no-files-found: error
 
   create-release:
@@ -797,21 +147,15 @@ jobs:
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: List artifacts
-        run: find artifacts -type f | sort
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
           name: ${{ needs.prepare.outputs.version }}
           body: ${{ needs.prepare.outputs.body }}
-          files: |
-            artifacts/windows-release/*
-            artifacts/android-release/*
+          files: artifacts/**/*
           draft: false
           prerelease: false
         env:
