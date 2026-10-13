@@ -122,7 +122,7 @@ jobs:
             alias="astrbotplus"; pass="android"
           fi
           BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
-          APK=$(find src-tauri/gen/android -name "*-release.apk" | head -1)
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -path "*/release/*" -name "*.apk" | head -1)
           mkdir -p release
           "$BT/zipalign" -f -p 4 "$APK" /tmp/aligned.apk
           "$BT/apksigner" sign --ks /tmp/ks.jks \
