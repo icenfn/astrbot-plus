@@ -1,0 +1,43 @@
+name: Bootstrap Android template
+
+# 一次性工具：生成 Tauri 的 Android 原生工程模板并打包为 artifact，
+# 供维护者下载后提交进仓库（src-tauri/gen/）。之后发布流程不再需要
+# `tauri android init` + 补丁脚本，模板即源码。
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 9477386
+          accept-android-sdk-licenses: true
+          packages: "platform-tools platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125"
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate Android project
+        run: npx tauri android init
+      - name: Upload generated template
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-gen
+          path: src-tauri/gen
+          include-hidden-files: true
+          if-no-files-found: error
