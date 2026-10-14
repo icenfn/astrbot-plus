@@ -6,17 +6,6 @@
  * companion plugin over Socket.io.
  */
 
-/** A bot created in the AstrBot WebUI（「创建机器人」page）, surfaced as an Agent. */
-export interface BotInfo {
-  id: string;
-  /** Display name. Equals the nickname when set, else the bot id. */
-  name: string;
-  /** Nickname configured in the WebUI（创建机器人 → 昵称）; empty when unset. */
-  nickname?: string;
-  platform?: string;
-  enabled?: boolean;
-}
-
 /** A message record pushed by the plugin (`message:new`) or read via `chat:history`. */
 export interface HistoryMessage {
   sessionId?: string;
@@ -41,17 +30,9 @@ export type ChatRole = "user" | "assistant" | "system";
 
 /** A single message inside an Agent thread. */
 export interface ChatMessage {
-  id?: number | string;
-  run_id?: string;
   role: ChatRole;
   text: string;
   created_at: string;
-  streaming?: boolean;
+  /** Set on an assistant bubble that failed (rendered with an error style). */
   error?: boolean;
-  /** Assistant reasoning text shown when the bot enables「显示思考内容」. */
-  reasoning?: string;
-  /** Tool-call status lines shown when the bot enables「输出工具调用信息」. */
-  toolCalls?: string[];
-  /** Token usage reported for the assistant turn, when available. */
-  tokens?: { input?: number; output?: number };
 }

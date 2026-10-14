@@ -46,12 +46,10 @@ export const useChatStore = defineStore("chat", () => {
   const loadingContacts = ref(false);
   const contactsError = ref("");
   const sending = ref(false);
-  const filter = ref<"agent">("agent");
   const search = ref("");
 
   let feedBound = false;
   let focusBound = false;
-  let feedOff: (() => void) | null = null;
 
   const filteredAgents = computed(() => {
     const q = search.value.trim().toLowerCase();
@@ -162,19 +160,14 @@ export const useChatStore = defineStore("chat", () => {
     // Re-sort so the most recent conversation floats to the top.
     agents.value = [...agents.value].sort((a, b) => b.updatedAt - a.updatedAt);
 
-    // Mirror bot/assistant messages into the open thread. If a streaming
-    // placeholder is still in flight, fill it in place (instead of appending a
-    // duplicate) — this is what makes the reply show up immediately without
-    // having to leave and re-enter the conversation.
+    // Mirror bot/assistant messages into the open thread so a reply that only
+    // arrives over the real-time feed (without a matching chat:done) still shows
+    // up immediately. Skip an exact duplicate of the last assistant bubble.
     const isActive = activeKey.value === id;
     if (isActive && msg.role !== "user") {
       const list = ensureThread(id);
       const last = list[list.length - 1];
-      if (last && last.role === "assistant" && last.streaming) {
-        last.text = text;
-        last.streaming = false;
-        void cacheMessages(id, list);
-      } else if (!(last && last.role === "assistant" && last.text === text)) {
+      if (!(last && last.role === "assistant" && last.text === text)) {
         pushMessage(id, { role: msg.role, text, created_at: tsToIso(msg.ts) });
       }
     }
@@ -203,7 +196,7 @@ export const useChatStore = defineStore("chat", () => {
     if (!settings.connected) return;
     if (feedBound) return;
     feedBound = true;
-    feedOff = settings.getSocket().on("message:new", (raw) => {
+    settings.getSocket().on("message:new", (raw) => {
       if (raw && typeof raw === "object") receiveMessage(raw as HistoryMessage);
     });
     // 插件（视图）侧启用/停用/删除机器人后主动广播，客户端据此实时刷新列表。
@@ -304,10 +297,6 @@ export const useChatStore = defineStore("chat", () => {
     void loadHistory(id);
   }
 
-  function openTarget(agent: AgentRow): void {
-    openAgent(agent.id);
-  }
-
   function closeActive(): void {
     activeKey.value = "";
   }
@@ -329,15 +318,40 @@ export const useChatStore = defineStore("chat", () => {
     agents.value = [...agents.value].sort((a, b) => b.updatedAt - a.updatedAt);
 
     sending.value = true;
-    // 必须是响应式对象：下方流式回调会直接改写它，若为普通对象则视图不会刷新，
+
+    // The assistant bubble is created lazily: only when the server actually
+    // produces the reply. A streaming turn materialises it on the first delta
+    // and grows in place (plain text, no typing animation / caret); a
+    // non-streaming turn appends it in a single shot when ``chat:done`` lands.
+    // This removes the empty placeholder bubble (and its animation) that used
+    // to flash for bots with streaming disabled.
+    let assistant: ChatMessage | null = null;
+    let settled = false;
+    // 必须是响应式对象：流式回调会直接改写它，若为普通对象则视图不会刷新，
     // 表现为「发送后要退出再进入消息页才能看到回复」（重新进入会重建线程）。
-    const assistant = reactive<ChatMessage>({
-      role: "assistant",
-      text: "",
-      created_at: new Date().toISOString(),
-      streaming: true,
-    });
-    pushMessage(id, assistant);
+    const ensureAssistant = (): ChatMessage => {
+      if (!assistant) {
+        assistant = reactive<ChatMessage>({
+          role: "assistant",
+          text: "",
+          created_at: new Date().toISOString(),
+        });
+        pushMessage(id, assistant);
+      }
+      return assistant;
+    };
+    // Write the finished reply one time. Used by both the streaming and the
+    // non-streaming path (``chat:done`` always carries the complete text).
+    const finishAssistant = (full: string): void => {
+      if (assistant) {
+        assistant.text = full || assistant.text;
+        return;
+      }
+      const list = ensureThread(id);
+      const last = list[list.length - 1];
+      if (last && last.role === "assistant" && last.text === full) return;
+      pushMessage(id, { role: "assistant", text: full, created_at: new Date().toISOString() });
+    };
 
     try {
       const cleanup = settings.getSocket().sendChat(
@@ -348,26 +362,23 @@ export const useChatStore = defineStore("chat", () => {
             void cacheSession(id, sid);
           },
           onDelta: (_delta, full) => {
-            assistant.text = full;
+            ensureAssistant().text = full;
           },
           onDone: (full) => {
-            // Also covers bots with streaming disabled: the server sends the
-            // complete text in a single chat:done and no deltas.
-            assistant.text = full || assistant.text;
-            assistant.streaming = false;
+            finishAssistant(full);
+            settled = true;
           },
           onError: (err) => {
-            assistant.text = err.message;
-            assistant.error = true;
-            assistant.streaming = false;
+            const msg = ensureAssistant();
+            msg.text = err.message;
+            msg.error = true;
+            settled = true;
           },
         },
       );
       // Resolve when the stream finishes. The watchdog guarantees we never get
-      // stuck "busy" forever if the server drops a chat:done (the reply may
-      // still have arrived via the message:new feed, which flips `streaming`).
+      // stuck "busy" forever if the server drops a chat:done.
       await new Promise<void>((resolve) => {
-        let settled = false;
         const finish = () => {
           if (settled) return;
           settled = true;
@@ -377,25 +388,18 @@ export const useChatStore = defineStore("chat", () => {
           resolve();
         };
         const timer = window.setInterval(() => {
-          if (!assistant.streaming) finish();
+          if (settled) finish();
         }, 100);
         const watchdog = window.setTimeout(finish, 120000);
       });
     } catch (e) {
-      assistant.text = e instanceof Error ? e.message : String(e);
-      assistant.error = true;
-      assistant.streaming = false;
+      const msg = ensureAssistant();
+      msg.text = e instanceof Error ? e.message : String(e);
+      msg.error = true;
     } finally {
       sending.value = false;
       void cacheMessages(id, threads.value[id] ?? []);
     }
-  }
-
-  /** Tear down the real-time feed (e.g. on disconnect). */
-  function unbindFeed(): void {
-    feedOff?.();
-    feedOff = null;
-    feedBound = false;
   }
 
   return {
@@ -407,7 +411,6 @@ export const useChatStore = defineStore("chat", () => {
     loadingContacts,
     contactsError,
     sending,
-    filter,
     search,
     filteredAgents,
     activeAgent,
@@ -418,12 +421,10 @@ export const useChatStore = defineStore("chat", () => {
     markUnread,
     receiveMessage,
     bindFeed,
-    unbindFeed,
     loadContacts,
     restoreCache,
     loadHistory,
     openAgent,
-    openTarget,
     closeActive,
     sendMessage,
   };

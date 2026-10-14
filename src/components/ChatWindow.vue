@@ -62,8 +62,6 @@ function jumpToBottom() {
   void scrollToBottom(true);
 }
 
-const subtitle = computed(() => "Agent");
-
 watch(() => activeThread.value.messages.length, () => scrollToBottom(true));
 watch(
   () => activeThread.value.messages.map((m) => m.text).join(""),
@@ -121,7 +119,7 @@ useEventListener(() => window.visualViewport, "resize", onViewportResize);
         <AstrbotAvatar :name="activeAgent.name" :seed="activeAgent.avatarSeed" :size="42" />
         <div class="head-meta">
           <div class="head-name">{{ activeAgent.name }}</div>
-          <div class="head-sub">{{ subtitle }}</div>
+          <div class="head-sub">Agent</div>
         </div>
       </header>
 
@@ -140,15 +138,15 @@ useEventListener(() => window.visualViewport, "resize", onViewportResize);
         </div>
 
         <transition name="fade">
-          <button
+          <v-btn
             v-if="showJumpButton"
             class="jump-btn"
-            type="button"
+            icon="mdi-arrow-down"
+            size="small"
+            variant="flat"
             title="回到底部"
             @click="jumpToBottom"
-          >
-            <v-icon icon="mdi-arrow-down" size="22" />
-          </button>
+          />
         </transition>
       </div>
 
@@ -228,20 +226,8 @@ useEventListener(() => window.visualViewport, "resize", onViewportResize);
   position: absolute;
   right: 18px;
   bottom: 14px;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  border: 1px solid rgba(128, 150, 170, 0.24);
-  background: rgb(var(--v-theme-surface-bright, var(--v-theme-surface)));
-  color: rgb(var(--v-theme-on-surface));
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
   z-index: 5;
-}
-.jump-btn:hover {
-  background: rgba(var(--v-theme-primary), 0.18);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
 }
 .fade-enter-active,
 .fade-leave-active {

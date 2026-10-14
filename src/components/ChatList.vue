@@ -41,14 +41,6 @@ const emptyText = computed(() => {
     <header class="head">
       <div class="head-title">
         <span>消息</span>
-        <v-chip
-          size="x-small"
-          :color="connected ? 'success' : 'grey'"
-          variant="tonal"
-          class="ml-2"
-        >
-          {{ connected ? "在线" : "离线" }}
-        </v-chip>
       </div>
     </header>
 
