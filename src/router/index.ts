@@ -80,6 +80,20 @@ const router = createRouter({
         },
       ],
     },
+    {
+      // Agent 信息 (bot_id + partial config) — opened from the message page's
+      // application-bar info button. Uses the generic 带返回按钮 frame.
+      path: "/agent/:id",
+      component: () => import("@/layouts/BackLayout.vue"),
+      children: [
+        {
+          path: "",
+          name: "agent-info",
+          component: () => import("@/views/AgentInfoView.vue"),
+          meta: { title: "Agent 信息" },
+        },
+      ],
+    },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });

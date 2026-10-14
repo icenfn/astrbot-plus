@@ -3,13 +3,16 @@ import { computed } from "vue";
 import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
 
 // UI-only page (no wiring yet). Layout is inspired by WeChat / Telegram:
-// a few pinned quick actions, a pinned「✦Agents」group, then contacts grouped
-// A–Z. The top search box and its filter logic were removed, as was the「标签」
-// shortcut.
+// a few pinned quick actions, a pinned「✦ Agents」group, then contacts grouped
+// A–Z. The top search box and its filter logic were removed, as were the「标签」
+// shortcut and the fallback「#」(other/symbols) group — every contact now carries
+// an explicit A–Z `initial`, so no「#」bucket is ever produced.
 
 interface Contact {
   name: string;
   seed: string;
+  /** A–Z bucket for this contact (pinyin initial for Chinese names). */
+  initial: string;
   desc?: string;
 }
 
@@ -20,27 +23,28 @@ const quick = [
 
 // Agents (bots created in the AstrBot WebUI) get their own pinned group.
 const agents: Contact[] = [
-  { name: "阿斯特", seed: "astra-agent", desc: "AstrBot Agent" },
-  { name: "Bot 小助手", seed: "bot-agent", desc: "AstrBot Agent" },
-  { name: "写作助手", seed: "writer-agent", desc: "AstrBot Agent" },
+  { name: "阿斯特", seed: "astra-agent", initial: "A", desc: "AstrBot Agent" },
+  { name: "Bot 小助手", seed: "bot-agent", initial: "B", desc: "AstrBot Agent" },
+  { name: "写作助手", seed: "writer-agent", initial: "X", desc: "AstrBot Agent" },
 ];
 
 const people: Contact[] = [
-  { name: "白露", seed: "bailu", desc: "一切都会好起来的" },
-  { name: "陈默", seed: "chenmo", desc: "沉默是金" },
-  { name: "丁一", seed: "dingyi", desc: "简单生活" },
-  { name: "风信子", seed: "fengxinzi", desc: "花开有时" },
-  { name: "顾清", seed: "guqing", desc: "清心寡欲" },
-  { name: "海鸥", seed: "haiou", desc: "飞向远方" },
-  { name: "纪南", seed: "jinan", desc: "南风知我意" },
-  { name: "柯蓝", seed: "kelan", desc: "蓝色心情" },
+  { name: "白露", seed: "bailu", initial: "B", desc: "一切都会好起来的" },
+  { name: "陈默", seed: "chenmo", initial: "C", desc: "沉默是金" },
+  { name: "丁一", seed: "dingyi", initial: "D", desc: "简单生活" },
+  { name: "风信子", seed: "fengxinzi", initial: "F", desc: "花开有时" },
+  { name: "顾清", seed: "guqing", initial: "G", desc: "清心寡欲" },
+  { name: "海鸥", seed: "haiou", initial: "H", desc: "飞向远方" },
+  { name: "纪南", seed: "jinan", initial: "J", desc: "南风知我意" },
+  { name: "柯蓝", seed: "kelan", initial: "K", desc: "蓝色心情" },
 ];
 
 const groups = computed(() => {
   const map = new Map<string, Contact[]>();
   for (const p of people) {
-    const first = p.name[0] ?? "#";
-    const letter = /[a-zA-Z]/.test(first) ? first.toUpperCase() : "#";
+    // Only real A–Z initials become groups; nothing falls into a「#」bucket.
+    const letter = /^[A-Za-z]$/.test(p.initial) ? p.initial.toUpperCase() : "";
+    if (!letter) continue;
     if (!map.has(letter)) map.set(letter, []);
     map.get(letter)!.push(p);
   }
@@ -62,8 +66,8 @@ const groups = computed(() => {
           </template>
         </v-list-item>
 
-        <!-- ✦Agents — 置顶分组，展示 WebUI 创建的 Agent -->
-        <v-list-subheader>✦Agents</v-list-subheader>
+        <!-- ✦ Agents — 置顶分组，展示 WebUI 创建的 Agent -->
+        <v-list-subheader>✦ Agents</v-list-subheader>
         <v-list-item
           v-for="a in agents"
           :key="a.name"

@@ -24,6 +24,17 @@ export interface AgentRow {
   updatedAt: number;
   lastMessage?: string;
   messageCount: number;
+  /** Platform adapter type reported by the plugin (e.g. `astrbot_plus`). */
+  platform?: string;
+  /** Whether the bot is enabled in the WebUI「创建机器人」page. */
+  enabled?: boolean;
+}
+
+/** Server capability payload returned by the plugin's `config` event. */
+export interface PluginConfig {
+  plugin?: string;
+  version?: string;
+  port?: number;
 }
 
 export type ChatRole = "user" | "assistant" | "system";

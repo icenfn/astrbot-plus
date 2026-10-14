@@ -20,6 +20,40 @@ body,
   box-sizing: border-box;
 }
 
+/* ---------------------------------------------------------------------------
+   Text-selection / long-press policy
+   The UI is app-like, so long-pressing chrome (bars, tab bar, list rows,
+   buttons, avatars, timestamps) must NOT raise a native text-selection handle
+   or the iOS/Android "callout" (copy/paste/share) menu. We therefore disable
+   selection + the touch callout on the whole document by default, then re-enable
+   it ONLY where reading/selecting genuinely makes sense — the message bubble
+   content, and real text controls (inputs / textareas / contenteditable).
+--------------------------------------------------------------------------- */
+html,
+body {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Message bubbles stay selectable (copy a reply, a code block, a link) — the
+   bubble body is rendered into `.md` by MessageBubble.vue. */
+.md,
+.md *,
+input,
+textarea,
+[contenteditable="true"],
+[contenteditable=""],
+.v-field__input,
+.v-text-field input,
+.v-textarea textarea {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 /* Telegram-like scrollbars */
 ::-webkit-scrollbar {
   width: 8px;

@@ -22,7 +22,7 @@
  *   message:new         → { sessionId, botId, role, text, ts }（新消息广播）
  */
 import { io, type Socket } from "socket.io-client";
-import type { HistoryMessage } from "./types";
+import type { HistoryMessage, PluginConfig } from "./types";
 
 /** Normalise a bare host[:port] or url into a Socket.io endpoint url. */
 export function normalizeSocketUrl(raw: string): string {
@@ -67,6 +67,10 @@ interface PluginBot {
   id: string;
   name?: string;
   nickname?: string;
+  /** Platform adapter type (e.g. `astrbot_plus`). */
+  platform?: string;
+  /** Enabled flag from the WebUI「创建机器人」page. */
+  enabled?: boolean;
   [k: string]: unknown;
 }
 
@@ -207,6 +211,11 @@ export class PlusSocket {
       return (res as { data: PluginBot[] }).data;
     }
     return [];
+  }
+
+  /** Fetch the plugin's server capabilities / defaults (`config` event). */
+  async getConfig(): Promise<PluginConfig | null> {
+    return this.request<PluginConfig>("config", {});
   }
 
   /** Fetch a session's message history (client-side history sync). */

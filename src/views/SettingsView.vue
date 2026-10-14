@@ -13,10 +13,10 @@ const { connected, connecting, lastError, connectionState, socketMode } =
 const { isTauri } = usePlatform();
 const { setAutoStart } = useWindow();
 
-const themes: { title: string; value: ThemeMode }[] = [
-  { title: "跟随系统", value: "system" },
-  { title: "深色", value: "telegramDark" },
-  { title: "浅色", value: "telegramLight" },
+const themes: { title: string; value: ThemeMode; icon: string }[] = [
+  { title: "跟随系统", value: "system", icon: "mdi-theme-light-dark" },
+  { title: "深色", value: "telegramDark", icon: "mdi-weather-night" },
+  { title: "浅色", value: "telegramLight", icon: "mdi-white-balance-sunny" },
 ];
 
 const canAutoStart = computed(() => isTauri);
@@ -112,16 +112,26 @@ async function onAutoStart(value: boolean) {
           <v-icon icon="mdi-palette-outline" size="18" class="mr-2" />外观
         </v-card-title>
         <v-card-text>
-          <v-select
+          <div class="theme-label mb-2">主题</div>
+          <v-btn-toggle
             v-model="settings.settings.theme"
-            :items="themes"
-            item-title="title"
-            item-value="value"
-            label="主题"
-            density="compact"
-            variant="solo-filled"
-            hide-details
-          />
+            mandatory
+            divided
+            variant="outlined"
+            color="primary"
+            class="theme-toggle"
+          >
+            <v-btn
+              v-for="t in themes"
+              :key="t.value"
+              :value="t.value"
+              size="small"
+              class="theme-btn"
+            >
+              <v-icon :icon="t.icon" size="16" class="mr-1" />
+              {{ t.title }}
+            </v-btn>
+          </v-btn-toggle>
         </v-card-text>
       </v-card>
 

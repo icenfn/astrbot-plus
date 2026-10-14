@@ -1,43 +1,72 @@
+import presetEnv from "postcss-preset-env";
+
 /**
  * PostCSS pipeline — CSS-level down-levelling for old Android WebViews.
  *
- * ── Scope: the WHOLE Vuetify 4 surface, not a hand-picked subset ────────────
- * Vite runs every stylesheet it resolves — including Vuetify 4's own component
- * CSS from node_modules — through this PostCSS pipeline. The preset below is
- * configured to lower the COMPLETE modern-CSS feature set (stage 2) rather than
- * enabling only a couple of transforms on demand, so nothing in Vuetify 4 is
- * left un-lowered for an aged WebView:
- *   • @layer        (cascade layers, Chrome 99+)  → flattened
- *   • color-mix() / relative colors (Chrome 111+) → static rgb()/rgba()
- *   • nesting       (Chrome 120+)                 → flattened
- *   • logical props, media-query range syntax, :is()/:where(), etc.
+ * Scope: the WHOLE Vuetify 4 stylesheet surface (Vuetify 4.2.x), not a hand-
+ * picked subset. Vite runs every stylesheet it resolves — including Vuetify 4's
+ * own component CSS from node_modules — through this pipeline.
  *
- * ── Why this layer is critical ──────────────────────────────────────────────
- * Vuetify 4 emits almost all of its component styles inside `@layer vuetify-*`
- * blocks. Chromium below 99 (Android WebView 91 = Chromium 91) does NOT support
- * `@layer`; an unrecognised at-rule is *dropped in full*, so the entire Vuetify
- * component stylesheet would silently disappear on those WebViews. Flattening
- * the cascade layers here is therefore the essential fix — not an optional
- * nicety.
+ * ── What Vuetify 4.2.x actually uses (measured in node_modules) ─────────────
+ *   @layer ............ 36 occurrences   (Chrome 99+)   -> MUST be flattened
+ *   color-mix() ....... 148              (Chrome 111+)  -> lowered where static
+ *   :where()/:is() .... supported ≥ Chrome 88          -> already safe on 91
+ *   oklch() ........... 1                (Chrome 111+)  -> converted to rgb()
+ *   dvh ............... 13               (Chrome 108+)  -> needs a vh fallback
+ *   :has() ............ ~45              (Chrome 105+)  -> no static lowering
+ *   @property ......... 6                (Chrome 85+)   -> safe / ignorable
  *
- * ── Responsibility boundary (CSS vs JS polyfills) ───────────────────────────
- * PostCSS only rewrites the STYLESHEET. JavaScript runtime polyfills and the
- * SystemJS legacy bundle are produced by @vitejs/plugin-legacy (vite.config.ts).
- * The two layers touch different asset types (CSS vs JS) and never overlap.
+ * ── Plugin 1: postcss-preset-env (SINGLE source of modern-CSS lowering) ─────
+ * stage: 2 enables the COMPLETE stage-2 feature set (not a hand-picked subset),
+ * which is what covers Vuetify 4. It owns cascade-layers (@layer flattening),
+ * color-mix-function, nesting-rules, logical-properties, media-query-ranges,
+ * relative-color-syntax, and Autoprefixer. Running the bundled transforms AND
+ * separate @csstools/* plugins at the same time would double-process the CSS,
+ * so the preset is the SINGLE source of truth (conflict-avoidance boundary). It
+ * reads the same `browserslist` as the JS/legacy layer.
  *
- * ── Single-instance guard ───────────────────────────────────────────────────
- * We run `postcss-preset-env` alone (stage 2) and let it own cascade-layers,
- * color-mix and Autoprefixer. Running the bundled transforms AND separate
- * `@csstools/*` plugins at the same time would double-process the CSS, so the
- * preset is the single source of truth. It reads the SAME `browserslist` as the
- * JS/legacy layer, keeping the CSS and JS floors consistent.
+ * `enableClientSidePolyfills` is intentionally left OFF: per its README it "does
+ * not cause the browsers libraries to be included in your bundle" — enabling it
+ * would emit `.js-*` fallback selectors whose polyfill JS is not shipped, i.e.
+ * dead CSS, and would add a new JS dependency (exactly the kind of conflict the
+ * user asked us to avoid). The dynamic-viewport gap is closed below instead.
+ *
+ * ── Plugin 2: local viewport-unit fallback (COMPLEMENTARY, no overlap) ──────
+ * postcss-preset-env has NO feature for viewport units, so `100dvh` (used by
+ * Vuetify's `v-application` wrapper and the `h-screen`-style utilities) is left
+ * untouched — and Chromium 91 cannot parse `dvh`, so it drops the whole
+ * declaration. This tiny plugin inserts a `vh`/`vw` fallback immediately BEFORE
+ * any dynamic viewport unit, so old WebViews use the fallback while modern ones
+ * keep the dynamic value (source order wins). It only clones declarations and
+ * never touches @layer/color-mix/nesting, so it cannot conflict with the preset.
  */
+function viewportUnitFallback() {
+  const DYNAMIC = { dvh: "vh", svh: "vh", lvh: "vh", dvw: "vw", svw: "vw", lvw: "vw" };
+  const re = /\b(dvh|svh|lvh|dvw|svw|lvw)\b/gi;
+
+  return {
+    postcssPlugin: "viewport-unit-fallback",
+    Declaration(decl) {
+      if (!decl.value || !re.test(decl.value)) return;
+      re.lastIndex = 0;
+      const fallback = decl.value.replace(re, (m) => DYNAMIC[m.toLowerCase()] ?? m);
+      if (fallback === decl.value) return;
+      // Insert the fallback BEFORE the original so the original wins where
+      // supported, and old engines (which dropped the original) keep the clone.
+      decl.cloneBefore({ value: fallback });
+    },
+  };
+}
+viewportUnitFallback.postcss = true;
+
 export default {
-  plugins: {
-    "postcss-preset-env": {
-      // Full stage-2 feature set: every Vuetify 4 style is down-levelled, not
-      // just the ones we happened to enable. cascade-layers + color-mix live at
-      // stage 2, so they are covered here without any extra plugin.
+  // Array form of PRE-INSTANTIATED plugins. Vite's array branch does not accept
+  // a `[name, options]` tuple (it only filters the list), so each plugin is
+  // imported and instantiated here instead.
+  plugins: [
+    presetEnv({
+      // Complete stage-2 feature set — the whole modern-CSS surface Vuetify 4
+      // relies on, not just a couple of transforms enabled on demand.
       stage: 2,
       // One Autoprefixer instance, driven by package.json "browserslist".
       autoprefixer: {},
@@ -46,6 +75,7 @@ export default {
         // to static values would break its runtime theme switching.
         "custom-properties": false,
       },
-    },
-  },
+    }),
+    viewportUnitFallback(),
+  ],
 };

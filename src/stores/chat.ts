@@ -105,10 +105,14 @@ export const useChatStore = defineStore("chat", () => {
     const displayName = raw.name || raw.nickname || raw.id;
     const idx = agents.value.findIndex((a) => a.id === raw.id);
     if (idx >= 0) {
+      const prev = agents.value[idx];
       agents.value[idx] = {
-        ...agents.value[idx],
+        ...prev,
         name: displayName,
         avatarSeed: displayName,
+        // Keep the platform/enabled metadata (shown on the Agent info page).
+        platform: raw.platform ?? prev.platform,
+        enabled: raw.enabled ?? prev.enabled,
       };
     } else {
       agents.value.push({
@@ -117,6 +121,8 @@ export const useChatStore = defineStore("chat", () => {
         avatarSeed: displayName,
         updatedAt: Date.now(),
         messageCount: 0,
+        platform: raw.platform,
+        enabled: raw.enabled,
       });
     }
   }
@@ -370,9 +376,17 @@ export const useChatStore = defineStore("chat", () => {
       // Resolve when the stream finishes. The watchdog guarantees we never get
       // stuck "busy" forever if the server drops a chat:done.
       await new Promise<void>((resolve) => {
+        // `settled` is flipped by the stream callbacks (onDone / onError). `finish`
+        // must still resolve AFTER that flip — so it guards on a SEPARATE
+        // `resolved` flag, not on `settled`. Previously finish() early-returned
+        // whenever `settled` was already true, which is exactly the normal
+        // chat:done case: the interval called finish() but it did nothing, so the
+        // Promise (and the "sending" state) never cleared until the 120s watchdog
+        // — the "send button stuck in sending" bug.
+        let resolved = false;
         const finish = () => {
-          if (settled) return;
-          settled = true;
+          if (resolved) return;
+          resolved = true;
           window.clearInterval(timer);
           window.clearTimeout(watchdog);
           cleanup();

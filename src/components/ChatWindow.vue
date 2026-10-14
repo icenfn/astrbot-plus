@@ -79,6 +79,11 @@ function closeChat() {
   void router.push("/");
 }
 
+/** Open the Agent info page (bot_id + partial config) for the active Agent. */
+function openInfo() {
+  if (activeAgent.value) void router.push(`/agent/${encodeURIComponent(activeAgent.value.id)}`);
+}
+
 async function onSend(text: string) {
   if (!activeAgent.value) return;
   await scrollToBottom(true);
@@ -121,6 +126,14 @@ useEventListener(() => window.visualViewport, "resize", onViewportResize);
           <div class="head-name">{{ activeAgent.name }}</div>
           <div class="head-sub">Agent</div>
         </div>
+        <v-btn
+          icon="mdi-information-outline"
+          variant="text"
+          size="small"
+          class="info-btn"
+          title="Agent 信息"
+          @click="openInfo"
+        />
       </header>
 
       <div class="messages-wrap">
@@ -183,6 +196,14 @@ useEventListener(() => window.visualViewport, "resize", onViewportResize);
 }
 .back-btn {
   margin-left: -8px;
+}
+.head-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.info-btn {
+  flex: 0 0 auto;
+  margin-right: -6px;
 }
 .head-name {
   font-weight: 600;
