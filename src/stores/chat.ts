@@ -46,18 +46,9 @@ export const useChatStore = defineStore("chat", () => {
   const loadingContacts = ref(false);
   const contactsError = ref("");
   const sending = ref(false);
-  const search = ref("");
 
   let feedBound = false;
   let focusBound = false;
-
-  const filteredAgents = computed(() => {
-    const q = search.value.trim().toLowerCase();
-    if (!q) return agents.value;
-    return agents.value.filter(
-      (a) => a.name.toLowerCase().includes(q) || a.id.toLowerCase().includes(q),
-    );
-  });
 
   const activeAgent = computed(
     () => agents.value.find((a) => a.id === activeKey.value) ?? null,
@@ -411,8 +402,6 @@ export const useChatStore = defineStore("chat", () => {
     loadingContacts,
     contactsError,
     sending,
-    search,
-    filteredAgents,
     activeAgent,
     activeThread,
     totalUnread,

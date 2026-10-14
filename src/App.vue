@@ -10,6 +10,7 @@ import { usePlatform } from "@/composables/usePlatform";
 import { useVisualViewport } from "@/composables/useVisualViewport";
 import { useWindow } from "@/composables/useWindow";
 import { requestBackgroundRun } from "@/composables/useBackground";
+import AppTopBar from "@/components/AppTopBar.vue";
 import AppSidebar from "@/components/AppSidebar.vue";
 import AppMobileNav from "@/components/AppMobileNav.vue";
 
@@ -34,11 +35,8 @@ watch(
 
 // Android hardware back button: the native MainActivity dispatches an
 // `android:back` event. When a chat is open, close it (return to the list);
-// otherwise fall back to the chats tab. Returning true is not needed here —
-// the native side only forwards the event.
+// otherwise fall back to the chats tab.
 function onAndroidBack() {
-  // A conversation is open: move the route back to the list. Because the open
-  // Agent is route-driven, this both closes it and returns to the chats 首页.
   if (activeKey.value) {
     void router.push("/");
     return;
@@ -94,9 +92,15 @@ useEventListener(window, "android:back", onAndroidBack);
 <template>
   <v-app>
     <div class="app-shell" :class="{ 'is-mobile': isMobile }">
-      <AppSidebar v-if="!isMobile" />
-      <div class="app-view">
-        <router-view />
+      <!-- App-wide application bar (title comes from the route). On mobile it is
+           hidden while a conversation is open, since the chat view provides its
+           own header with the back button. -->
+      <AppTopBar v-if="!(isMobile && activeKey)" />
+      <div class="app-body">
+        <AppSidebar v-if="!isMobile" />
+        <div class="app-view">
+          <router-view />
+        </div>
       </div>
       <!-- The bottom tab bar is hidden while a chat is open: the message view
            is a full-screen page on mobile. -->
@@ -119,12 +123,16 @@ useEventListener(window, "android:back", onAndroidBack);
   width: 100%;
   height: var(--app-height, 100dvh);
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   overflow: hidden;
   background: rgb(var(--v-theme-background));
 }
-.app-shell.is-mobile {
-  flex-direction: column;
+.app-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
 }
 .app-view {
   flex: 1 1 auto;

@@ -29,11 +29,11 @@ body,
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(120, 140, 160, 0.35);
+  background: rgba(var(--v-theme-on-surface), 0.3);
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(120, 140, 160, 0.55);
+  background: rgba(var(--v-theme-on-surface), 0.5);
 }
 
 .chat-scroll {
@@ -56,13 +56,11 @@ body,
 /* ---------------------------------------------------------------------------
    Mobile layout helpers
    The shell switches to a bottom tab bar below 900px (see usePlatform.ts).
-   Views add bottom padding so content is never hidden behind the tab bar.
+   The tab bar is rendered by <AppMobileNav> inside the flex shell and is
+   hidden while a conversation/settings page is open, so the routable views
+   (消息/联系人/我的) no longer need per-view bottom padding hacks.
 --------------------------------------------------------------------------- */
 @media (max-width: 900px) {
-  .settings-view {
-    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)) !important;
-  }
-  .chat-main,
   .messages {
     padding-bottom: 0;
   }

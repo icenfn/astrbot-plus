@@ -179,7 +179,7 @@ useEventListener(() => window.visualViewport, "resize", onViewportResize);
   gap: 12px;
   padding: 12px 16px;
   background: rgb(var(--v-theme-surface));
-  border-bottom: 1px solid rgba(128, 150, 170, 0.14);
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }
 .back-btn {
   margin-left: -8px;

@@ -72,10 +72,6 @@ async function onAutoStart(value: boolean) {
 <template>
   <div class="settings-page">
     <div class="inner">
-      <header class="top">
-        <h1 class="text-h5">设置</h1>
-      </header>
-
       <!-- 连接：仅包含编辑框、连接按钮、连接状态 v-chip（显示 socket.io 连接模式） -->
       <v-card class="card" variant="flat">
         <v-card-title class="card-title">
@@ -220,11 +216,8 @@ async function onAutoStart(value: boolean) {
   flex-direction: column;
   gap: 14px;
 }
-.top {
-  padding: 4px 2px 2px;
-}
 .card {
-  border: 1px solid rgba(128, 150, 170, 0.16);
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
   background: rgb(var(--v-theme-surface));
 }
 .card-title {

@@ -131,7 +131,7 @@ function onKeydown(e: KeyboardEvent) {
   /* extra bottom padding clears the home indicator / gesture bar */
   padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
   background: rgb(var(--v-theme-surface));
-  border-top: 1px solid rgba(128, 150, 170, 0.14);
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }
 .box {
   display: flex;
@@ -156,6 +156,6 @@ function onKeydown(e: KeyboardEvent) {
   font-family: inherit;
 }
 .input::placeholder {
-  color: rgba(150, 165, 180, 0.7);
+  color: rgba(var(--v-theme-on-surface), 0.5);
 }
 </style>

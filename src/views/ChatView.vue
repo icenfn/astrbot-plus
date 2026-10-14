@@ -99,7 +99,7 @@ onMounted(async () => {
 .list {
   width: 340px;
   flex: 0 0 340px;
-  border-right: 1px solid rgba(128, 150, 170, 0.16);
+  border-right: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }
 .window-pane {
   flex: 1 1 auto;
