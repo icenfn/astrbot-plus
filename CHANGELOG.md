@@ -1,3 +1,14 @@
+## v0.4.12
+
+### 修复
+- 📱 **修复旧版 Android WebView（目标 WebView 91 / Chromium 91）兼容**：上一版仅做了基础配置，实测旧 WebView 仍无法正常渲染，本次定位并修复两处真正的原因：
+  1. **样式层（关键）**：Vuetify 4 将绝大多数组件样式包裹在 `@layer vuetify-*` 级联层内，而 Chromium < 99 不认识 `@layer`，遇到无法识别的 at-rule 会**整块丢弃**其中的样式，导致旧 WebView 上组件样式全部失效、UI 直接崩坏。现引入 `@csstools/postcss-cascade-layers` 将级联层压平为等价的高特异性选择器（`:not(#\#)`），使样式在 WebView 91 上正常生效；并用 `@csstools/postcss-color-mix-function` 为 `color-mix()`（Chrome 111+）生成静态 `rgb()` 回退。
+  2. **脚本层**：WebView 91 支持原生 ESM，会被 `@vitejs/plugin-legacy` 判定为「现代浏览器」并加载 **modern** 包——而上一版的 modern 包既未按旧基线降级、也未注入任何 polyfill。现为 modern 包设置 `modernTargets`（Chromium 87 基线）并开启 `modernPolyfills`，按旧基线降级 JS 语法并注入 `core-js`（如 `Object.hasOwn`、`Array.prototype.at`、`structuredClone` 等）。
+- 🔗 统一 `browserslist` 与构建基线（`chrome >= 61` 等），确保 Autoprefixer 与 Babel/legacy 面向一致的浏览器下限。
+
+### 说明
+- 职责边界：PostCSS 只负责**样式表**降级，`@vitejs/plugin-legacy` 负责 **JS 语法 + 运行时 polyfill**，二者互不重叠；`postcss-preset-env` 内置 Autoprefixer 已关闭，避免前缀器重复运行。
+
 ## v0.4.11
 
 ### 修复

@@ -1,17 +1,16 @@
 {
   "name": "astrbot-plus",
   "private": true,
-  "version": "0.4.11",
+  "version": "0.4.12",
   "type": "module",
   "description": "AstrBot+ — a modern client for AstrBot (Tauri + Vue 3 + Vuetify 4)",
   "author": "astrbot-plus contributors",
   "license": "MIT",
   "browserslist": [
-    "chrome >= 64",
-    "android >= 6",
+    "chrome >= 61",
     "safari >= 12",
-    "edge >= 79",
-    "firefox >= 78"
+    "firefox >= 60",
+    "edge >= 79"
   ],
   "scripts": {
     "dev": "vite",
