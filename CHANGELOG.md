@@ -1,3 +1,34 @@
+## v0.4.15
+
+### 新增
+- ℹ️ **「Agent 信息」页面**：聊天消息页面的应用栏右侧新增信息按钮，跳转独立页面 `/agent/:id`（复用「带返回按钮」的通用页面框架）。页面展示该 Agent 的 **bot_id**、显示名称、平台适配器、启用状态，以及配套插件的服务端信息（`config` 事件返回的插件名 / 版本 / 端口）。
+
+### 修复
+- 🐛 **修复发送按钮偶发卡在发送状态**：发送 Promise 的 `finish()` 原先以 `settled` 作为短路条件，而 `settled` 正是由流式回调置位——正常 `chat:done` 时 `finish()` 会直接 return，导致 Promise 永不 resolve（一直拖到 120s 看门狗）。现改用独立的 `resolved` 标志，流结束后正确结算。
+- 🚫 **禁止长按选择文本**：全局设置 `user-select: none` 与 `-webkit-touch-callout: none`，长按 UI 不再弹出系统选择手柄 / 复制菜单；仅在消息气泡正文（`.md`）与文本输入控件内恢复选择。
+
+### 变更
+- 🧹 **联系人页面**：删除「#」分组（改为显式 A–Z 首字母，不再产生「#」桶）；「✦Agents」调整为「✦ Agents」。
+- 🎛️ **设置-外观**：主题切换由 `v-select` 改为 `v-btn-toggle`（mandatory / divided / outlined，带图标）。
+
+### 构建
+- 🧩 **旧 WebView 兼容再校验（针对整个 Vuetify 4.2.x）**：实测 `@layer` 36 处已全部压平；`color-mix()` / nesting / `oklch()` 由 `postcss-preset-env` `stage:2` 统一降级（单一来源，避免与独立 `@csstools` 插件重复处理冲突）；新增本地 `viewport-unit-fallback` 插件，为 `100dvh` 等动态视口单位补齐 `vh/vw` 回退（Chromium 91 无法解析动态视口单位）。未启用 `enableClientSidePolyfills`（其不会把 polyfill JS 打进产物，只会产生无 JS 支撑的死 CSS 并新增依赖，属应避免的冲突）。
+- 🔧 **修复 Release 工作流**：版本号改为以 **git 标签**为准（标签推送用标签名、手动触发可用输入项），仅在没有标签/输入时才回退 CHANGELOG 顶部；避免产物被投递到错误的 Release 导致新 Release 无 Assets。
+
+## v0.4.14
+
+### 新增
+- 🧭 **使用 vue-router 组织页面框架**：新增 `HomeLayout`（首页框架）、`MessageLayout`（消息页面框架）、`BackLayout`（带返回按钮的通用页面框架），不再把 `AppTopBar` 写死在 `App.vue`；原 `ChatView` 拆分为 `ChatsView`（首页「消息」标签）与 `ChatSessionView`（单会话 `/chat/:id`）。
+- ℹ️ **「关于」页面**：新增 `AboutView`，应用名称 / 应用版本 / Tauri 版本通过 `@tauri-apps/api/app` 获取，非 Tauri 环境回退构建期注入的版本号。
+
+### 变更
+- 👥 **联系人页面**：删除顶部搜索框及相关查询逻辑，删除「标签」快捷项，新增「✦Agents」置顶分组。
+- 👤 **我的页面**：删除「外观」「消息通知」列表项，「关于 AstrBot+」跳转独立页面。
+
+### 构建
+- 🧩 **兼容策略面向整个 Vuetify 4**：`postcss-preset-env` 提升为 `stage: 2` 全量降级；Vite `modernPolyfills` 由「按需」改为覆盖 Vuetify4 / Vue3 运行时的显式全量 `core-js` 列表。
+- 🔖 版本号提升至 `0.4.14`（`package.json` / `tauri.conf.json` / `Cargo.toml` 同步）。
+
 ## v0.4.13
 
 ### 新增
@@ -18,7 +49,7 @@
 
 ### 修复
 - 📱 **修复旧版 Android WebView（目标 WebView 91 / Chromium 91）兼容**：上一版仅做了基础配置，实测旧 WebView 仍无法正常渲染，本次定位并修复两处真正的原因：
-  1. **样式层（关键）**：Vuetify 4 将绝大多数组件样式包裹在 `@layer vuetify-*` 级联层内，而 Chromium < 99 不认识 `@layer`，遇到无法识别的 at-rule 会**整块丢弃**其中的样式，导致旧 WebView 上组件样式全部失效、UI 直接崩坏。现引入 `@csstools/postcss-cascade-layers` 将级联层压平为等价的高特异性选择器（`:not(#\#)`），使样式在 WebView 91 上正常生效；并用 `@csstools/postcss-color-mix-function` 为 `color-mix()`（Chrome 111+）生成静态 `rgb()` 回退。
+  1. **样式层（关键）**：Vuetify 4 将绝大多数组件样式包裹在 `@layer vuetify-*` 级联层内，而 Chromium < 99 不认识 `@layer`，遇到无法识别的 at-rule 会**整块丢弃**其中的样式，导致旧 WebView 上组件样式全部失效、UI 直接崩坏。现引入 `@csstools/postcss-cascade-layers` 将级联层压平为等价的高特异性选择器（`:not(#\\#)`），使样式在 WebView 91 上正常生效；并用 `@csstools/postcss-color-mix-function` 为 `color-mix()`（Chrome 111+）生成静态 `rgb()` 回退。
   2. **脚本层**：WebView 91 支持原生 ESM，会被 `@vitejs/plugin-legacy` 判定为「现代浏览器」并加载 **modern** 包——而上一版的 modern 包既未按旧基线降级、也未注入任何 polyfill。现为 modern 包设置 `modernTargets`（Chromium 87 基线）并开启 `modernPolyfills`，按旧基线降级 JS 语法并注入 `core-js`（如 `Object.hasOwn`、`Array.prototype.at`、`structuredClone` 等）。
 - 🔗 统一 `browserslist` 与构建基线（`chrome >= 61` 等），确保 Autoprefixer 与 Babel/legacy 面向一致的浏览器下限。
 

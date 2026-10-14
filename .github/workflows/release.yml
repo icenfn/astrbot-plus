@@ -1,18 +1,33 @@
 name: Release
 
-# 手动触发，或推送 v* 标签时触发。
-# 从 CHANGELOG.md 提取最新版本号与发布说明，构建 Windows(nsis) 与 Android(arm64)，
-# 汇总为一次 GitHub Release。
+# 通过推送 v* 标签或手动触发运行。
+# 版本号以「标签」为准（标签推送用标签名；手动触发可用 version 输入；两者都没有才回退 CHANGELOG 顶部）。
+# 构建 Windows(nsis) 与 Android(arm64)，并把产物上传为 GitHub Release 的 Assets。
+#
+# 说明（本次修复）：此前版本号一直取自 CHANGELOG.md 的顶部标题，而该标题长期停留在
+# v0.4.13，导致标签推送 v0.4.14 / v0.4.15 时，工作流仍以 v0.4.13 作为 tag_name，
+# 把新构建的产物上传到了旧的 v0.4.13 Release，新 Release 的 Assets 因此为空。
+# 现在版本号优先取自 git 标签，避免再次发生「产物投递到错误 Release」的问题。
 #
 # Android 原生工程（src-tauri/gen/android）已作为源码提交进仓库：manifest、MainActivity、
 # 图标、ABI、cleartext 等定制都直接写在模板里，构建时无需再 `android init` + 打补丁。
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "要发布的版本标签（例如 v0.4.15）。留空则取 CHANGELOG.md 顶部版本。"
+        required: false
+        default: ""
+        type: string
   push:
     tags: ["v*"]
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   prepare:
@@ -26,15 +41,44 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Extract version + body from CHANGELOG.md
+      - name: Resolve version + body
         id: meta
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          version=$(grep -m1 '^## ' CHANGELOG.md | sed 's/^##[[:space:]]*//')
-          body=$(awk -v v="$version" '$0 ~ "^## " v "$" {c=1; next} c && /^## / {exit} c' CHANGELOG.md)
-          should=true
-          if [ "$GITHUB_REF_TYPE" != "tag" ] && git rev-parse -q --verify "refs/tags/$version" >/dev/null; then
-            should=false
+          set -euo pipefail
+
+          # 1) 版本号来源优先级：标签推送 > 手动输入 > CHANGELOG 顶部。
+          #    这样「打标签发布」永远不会因为 CHANGELOG 未及时更新而投递到错误 Release。
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="$GITHUB_REF_NAME"
+          elif [ -n "${INPUT_VERSION:-}" ]; then
+            version="$INPUT_VERSION"
+          else
+            version=$(grep -m1 '^## ' CHANGELOG.md | sed 's/^##[[:space:]]*//')
           fi
+
+          # 规范化：统一带前导 v（例如 0.4.15 -> v0.4.15）。
+          case "$version" in
+            v*) ;;
+            "") echo "无法解析版本号" >&2; exit 1 ;;
+            *) version="v$version" ;;
+          esac
+
+          # 2) 发布说明：匹配 CHANGELOG 中该版本段落（兼容带/不带前导 v 的标题）。
+          vn="${version#v}"
+          body=$(awk -v v="$version" -v vn="$vn" '
+            ($0 == "## " v || $0 == "## " vn) {c=1; next}
+            c && /^## / {exit}
+            c
+          ' CHANGELOG.md)
+          if [ -z "$body" ]; then
+            body="本次发布 ${version}，详情见仓库 CHANGELOG.md。"
+          fi
+
+          # 标签推送或手动触发都应发布；对已存在的 Release 会补传/更新产物。
+          should=true
+
           {
             echo "version=$version"
             echo "body<<EOF"
@@ -145,12 +189,18 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Show downloaded artifacts
+        run: find artifacts -type f -maxdepth 3 -printf '%p (%s bytes)\n' || ls -R artifacts
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare.outputs.version }}
           name: ${{ needs.prepare.outputs.version }}
           body: ${{ needs.prepare.outputs.body }}
-          files: artifacts/**/*
+          # 逐个匹配每个子目录下的产物；避免 **/* 在个别环境下漏匹配。
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.apk
+          fail_on_unmatched_files: true
           draft: false
           prerelease: false
         env:
