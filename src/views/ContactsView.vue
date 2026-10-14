@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
 
 // UI-only page (no wiring yet). Layout is inspired by WeChat / Telegram:
-// a search field, a few pinned quick actions, then contacts grouped A–Z.
+// a few pinned quick actions, a pinned「✦Agents」group, then contacts grouped
+// A–Z. The top search box and its filter logic were removed, as was the「标签」
+// shortcut.
 
 interface Contact {
   name: string;
@@ -11,17 +13,19 @@ interface Contact {
   desc?: string;
 }
 
-const query = ref("");
-
 const quick = [
   { name: "新的朋友", icon: "mdi-account-plus", color: "warning" },
   { name: "群聊", icon: "mdi-account-group", color: "success" },
-  { name: "标签", icon: "mdi-tag", color: "info" },
+];
+
+// Agents (bots created in the AstrBot WebUI) get their own pinned group.
+const agents: Contact[] = [
+  { name: "阿斯特", seed: "astra-agent", desc: "AstrBot Agent" },
+  { name: "Bot 小助手", seed: "bot-agent", desc: "AstrBot Agent" },
+  { name: "写作助手", seed: "writer-agent", desc: "AstrBot Agent" },
 ];
 
 const people: Contact[] = [
-  { name: "阿斯特", seed: "astra", desc: "在 AstrBot 相遇" },
-  { name: "Bot 小助手", seed: "bot", desc: "官方助手账号" },
   { name: "白露", seed: "bailu", desc: "一切都会好起来的" },
   { name: "陈默", seed: "chenmo", desc: "沉默是金" },
   { name: "丁一", seed: "dingyi", desc: "简单生活" },
@@ -35,7 +39,6 @@ const people: Contact[] = [
 const groups = computed(() => {
   const map = new Map<string, Contact[]>();
   for (const p of people) {
-    if (query.value && !p.name.includes(query.value)) continue;
     const first = p.name[0] ?? "#";
     const letter = /[a-zA-Z]/.test(first) ? first.toUpperCase() : "#";
     if (!map.has(letter)) map.set(letter, []);
@@ -49,18 +52,6 @@ const groups = computed(() => {
 
 <template>
   <div class="contacts">
-    <v-text-field
-      v-model="query"
-      class="contacts-search"
-      placeholder="搜索联系人"
-      prepend-inner-icon="mdi-magnify"
-      variant="solo-filled"
-      density="comfortable"
-      hide-details
-      flat
-      clearable
-    />
-
     <div class="contacts-scroll chat-scroll">
       <v-list class="contacts-list" lines="two">
         <v-list-item v-for="q in quick" :key="q.name" :title="q.name" link>
@@ -68,6 +59,20 @@ const groups = computed(() => {
             <v-avatar :color="q.color" size="44" rounded="lg">
               <v-icon :icon="q.icon" color="white" />
             </v-avatar>
+          </template>
+        </v-list-item>
+
+        <!-- ✦Agents — 置顶分组，展示 WebUI 创建的 Agent -->
+        <v-list-subheader>✦Agents</v-list-subheader>
+        <v-list-item
+          v-for="a in agents"
+          :key="a.name"
+          :title="a.name"
+          :subtitle="a.desc"
+          link
+        >
+          <template #prepend>
+            <AstrbotAvatar :name="a.name" :seed="a.seed" :size="44" />
           </template>
         </v-list-item>
 
@@ -97,10 +102,6 @@ const groups = computed(() => {
   display: flex;
   flex-direction: column;
   background: rgb(var(--v-theme-background));
-}
-.contacts-search {
-  flex: 0 0 auto;
-  padding: 8px 12px;
 }
 .contacts-scroll {
   flex: 1 1 auto;

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
 
-// UI-only page. The 设置 entry lives here (req. 6); the other rows are
-// placeholders and intentionally have no behaviour yet.
+// UI-only page. The 设置 entry lives here; the other rows are placeholders and
+// intentionally have no behaviour yet. The「外观」and「消息通知」rows were removed
+// (appearance + notification settings live in 设置), and「关于 AstrBot+」now
+// opens the dedicated about page.
 
 interface MenuItem {
   title: string;
@@ -13,9 +15,7 @@ interface MenuItem {
 const menu: MenuItem[] = [
   { title: "设置", icon: "mdi-cog-outline", to: "/settings" },
   { title: "账号与安全", icon: "mdi-shield-account-outline" },
-  { title: "消息通知", icon: "mdi-bell-outline" },
-  { title: "外观", icon: "mdi-palette-outline" },
-  { title: "关于 AstrBot+", icon: "mdi-information-outline" },
+  { title: "关于 AstrBot+", icon: "mdi-information-outline", to: "/about" },
 ];
 </script>
 

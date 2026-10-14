@@ -1,47 +1,50 @@
 /**
  * PostCSS pipeline — CSS-level down-levelling for old Android WebViews.
  *
- * ── Why this layer is critical (the real WebView-91 blocker) ────────────────
+ * ── Scope: the WHOLE Vuetify 4 surface, not a hand-picked subset ────────────
+ * Vite runs every stylesheet it resolves — including Vuetify 4's own component
+ * CSS from node_modules — through this PostCSS pipeline. The preset below is
+ * configured to lower the COMPLETE modern-CSS feature set (stage 2) rather than
+ * enabling only a couple of transforms on demand, so nothing in Vuetify 4 is
+ * left un-lowered for an aged WebView:
+ *   • @layer        (cascade layers, Chrome 99+)  → flattened
+ *   • color-mix() / relative colors (Chrome 111+) → static rgb()/rgba()
+ *   • nesting       (Chrome 120+)                 → flattened
+ *   • logical props, media-query range syntax, :is()/:where(), etc.
+ *
+ * ── Why this layer is critical ──────────────────────────────────────────────
  * Vuetify 4 emits almost all of its component styles inside `@layer vuetify-*`
  * blocks. Chromium below 99 (Android WebView 91 = Chromium 91) does NOT support
  * `@layer`; an unrecognised at-rule is *dropped in full*, so the entire Vuetify
  * component stylesheet would silently disappear on those WebViews. Flattening
  * the cascade layers here is therefore the essential fix — not an optional
- * nicety. `color-mix()` (Chrome 111+) is likewise lowered to static rgb().
+ * nicety.
  *
  * ── Responsibility boundary (CSS vs JS polyfills) ───────────────────────────
  * PostCSS only rewrites the STYLESHEET. JavaScript runtime polyfills and the
  * SystemJS legacy bundle are produced by @vitejs/plugin-legacy (vite.config.ts).
  * The two layers touch different asset types (CSS vs JS) and never overlap.
  *
- * ── Double-processing guard ─────────────────────────────────────────────────
- * `postcss-preset-env` bundles Autoprefixer, and its own `cascade-layers` /
- * `color-mix-function` features live at stage 2. We run preset-env at stage 3
- * (stage 2 features excluded) so those transforms do NOT run twice, and we
- * disable the bundled Autoprefixer in favour of a single explicit instance.
- * Every plugin reads the SAME `browserslist` from package.json, so the CSS
- * layer and the JS/legacy layer always target a consistent browser floor.
+ * ── Single-instance guard ───────────────────────────────────────────────────
+ * We run `postcss-preset-env` alone (stage 2) and let it own cascade-layers,
+ * color-mix and Autoprefixer. Running the bundled transforms AND separate
+ * `@csstools/*` plugins at the same time would double-process the CSS, so the
+ * preset is the single source of truth. It reads the SAME `browserslist` as the
+ * JS/legacy layer, keeping the CSS and JS floors consistent.
  */
 export default {
   plugins: {
-    // Flatten `@layer` (Vuetify's cascade layers) for browsers that drop it.
-    // Unwraps the layers and preserves order via an old-browser-safe
-    // `:not(#\#)` specificity bump (works in Chromium >= 88 / WebView 91).
-    "@csstools/postcss-cascade-layers": {},
-    // Lower `color-mix()` (Chrome 111+) to static rgb()/rgba() where possible.
-    "@csstools/postcss-color-mix-function": {},
-    // One explicit Autoprefixer instance, driven by package.json "browserslist".
-    autoprefixer: {},
     "postcss-preset-env": {
-      // Disable the bundled autoprefixer so it does not run a second time.
-      autoprefixer: false,
-      // stage 3 keeps only stable transforms; the stage-2 cascade-layers /
-      // color-mix features are intentionally left to the explicit plugins above.
-      stage: 3,
+      // Full stage-2 feature set: every Vuetify 4 style is down-levelled, not
+      // just the ones we happened to enable. cascade-layers + color-mix live at
+      // stage 2, so they are covered here without any extra plugin.
+      stage: 2,
+      // One Autoprefixer instance, driven by package.json "browserslist".
+      autoprefixer: {},
       features: {
-        "nesting-rules": false,
+        // Keep Vuetify's runtime CSS custom properties intact — resolving var()
+        // to static values would break its runtime theme switching.
         "custom-properties": false,
-        "color-functional-notation": false,
       },
     },
   },

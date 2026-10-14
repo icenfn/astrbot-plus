@@ -1,30 +1,21 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute } from "vue-router";
 
-// A single, app-wide application bar. The page title is derived from the
-// current route's meta, so individual pages no longer render their own header
-// text (the old「消息」/「设置」in-page titles are gone). A back button appears
-// on non-root pages (e.g. 设置) so they can be dismissed on any platform.
+/**
+ * AppTopBar — a title-only application bar.
+ *
+ * The title is derived from the active route's `meta.title`. The back button now
+ * belongs to `BackLayout`, so this bar only needs to render the title for the
+ * home and message frames.
+ */
 const route = useRoute();
-const router = useRouter();
 
-const ROOTS = ["chats", "contacts", "mine"];
 const title = computed(() => (route.meta.title as string | undefined) ?? "AstrBot+");
-const showBack = computed(() => !ROOTS.includes(String(route.name)));
 </script>
 
 <template>
   <v-toolbar class="app-topbar" density="comfortable" flat>
-    <v-btn
-      v-if="showBack"
-      icon="mdi-arrow-left"
-      variant="text"
-      :ripple="false"
-      class="mr-1"
-      title="返回"
-      @click="router.back()"
-    />
     <v-toolbar-title class="app-topbar-title">{{ title }}</v-toolbar-title>
   </v-toolbar>
 </template>
