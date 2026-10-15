@@ -1,3 +1,13 @@
+## v0.4.20
+
+### 变更
+- ↩️ **回滚 v0.4.19 的大部分改动**：上一版引入的多项调整被整体撤回，恢复到 v0.4.18 的基线行为，仅按下述范围保留必要改动。
+  - 撤回：启动白屏优化（`index.html` 内联背景/加载指示）、联系人列表间距与副标题调整、联系人顶部图标配色、会话列表间距、`AppSidebar` 的选中态改动、`legacy-css` 观察器改动、`plugins/vuetify.ts` 的 `global-configuration`（`display`/`locale`）与主题相关调整。
+- 🔔 **保留：系统状态栏显示修复**：应用为 edge-to-edge（透明状态栏/导航栏），此前状态栏图标沿用系统默认浅色，在浅色主题浅背景上「隐形」。保留原生 `MainActivity` 基于 `WindowInsetsControllerCompat` 的明暗控制与 `window.AstrbotNative.setStatusBarAppearance()` 桥接，前端在主题变更时实时下发，桌面/网页环境自动跳过。
+- 🧭 **保留：首页底部 Tab 栏修复**：底部导航使用 `v-btn :to`，而 Vuetify 激活判定基于路由前缀匹配，`to="/"` 会匹配所有以 `/` 开头的路径，导致首个 Tab 恒亮（底色与其它未选中项不同）。保留显式 `:active="current === tab.name"`，由组件当前路由精确控制选中态。
+- 🌳 **保留：Vuetify treeshaking**：继续使用 `vite-plugin-vuetify` 的 `autoImport`，按需引入实际用到的组件与样式。
+- 🔖 版本号提升至 `0.4.20`。
+
 ## v0.4.19
 
 ### 修复

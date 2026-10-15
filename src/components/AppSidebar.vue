@@ -41,7 +41,6 @@ const current = computed(() => route.name);
         v-for="item in items"
         :key="item.name"
         :to="item.to"
-        :active="current === item.name"
         :icon="current === item.name ? item.active : item.icon"
         variant="text"
         :ripple="false"

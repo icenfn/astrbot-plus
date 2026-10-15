@@ -3,7 +3,6 @@ import "@mdi/font/css/materialdesignicons.css";
 
 import { createVuetify, type ThemeDefinition } from "vuetify";
 import { aliases, mdi } from "vuetify/iconsets/mdi";
-import { zhHans } from "vuetify/locale";
 
 /**
  * AstrBot+ theme — a clean blue palette (both dark & light use a blue accent).
@@ -88,23 +87,6 @@ export default createVuetify({
       telegramDark,
       telegramLight,
     },
-  },
-  // ── Global configuration ────────────────────────────────────────────────
-  // Centralises app-wide options instead of scattering them per component.
-  // See https://vuetifyjs.com/zh-Hans/features/global-configuration/
-  //
-  // • display: the mobile/desktop split used by useDisplay(); the thresholds
-  //   are tuned for a phone-first shell (the app is a Telegram-style client).
-  // • locale: Simplified Chinese strings + an English fallback, so internal
-  //   date/number formatting and any Vuetify-provided labels read correctly.
-  display: {
-    mobileBreakpoint: "md",
-    thresholds: { xs: 0, sm: 480, md: 768, lg: 1024, xl: 1440, xxl: 1920 },
-  },
-  locale: {
-    locale: "zhHans",
-    fallback: "en",
-    messages: { zhHans },
   },
   icons: {
     defaultSet: "mdi",

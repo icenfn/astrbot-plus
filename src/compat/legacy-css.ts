@@ -92,16 +92,6 @@ function flattenStyleElement(el: HTMLStyleElement): void {
   if (flattened && flattened !== css) el.textContent = flattened;
 }
 
-/** Walk up from a node to the enclosing `<style>` element, if any. */
-function enclosingStyle(node: Node | null): HTMLStyleElement | null {
-  for (let cur = node; cur; cur = cur.parentNode) {
-    if (cur.nodeType === 1 && (cur as Element).tagName === "STYLE") {
-      return cur as HTMLStyleElement;
-    }
-  }
-  return null;
-}
-
 /**
  * Install the runtime de-layering shim. Idempotent, and a no-op on engines with
  * native `@layer` support.
@@ -124,27 +114,18 @@ export function installLegacyCssCompat(): void {
     if (!head || typeof MutationObserver === "undefined") return;
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
-        // Vuetify rewrites the theme sheet by assigning `styleSheet.innerHTML`,
-        // which REPLACES the <style>'s text child node. That surfaces as a
-        // `childList` mutation whose added node is a TEXT node (nodeType 3) —
-        // the old code only inspected element nodes and therefore missed it,
-        // so after a live theme switch the freshly injected `@layer` sheet was
-        // never flattened and got dropped (components fell back to black).
-        // Resolve the enclosing <style> from both the target and every added
-        // node instead of assuming an element child.
-        if (mutation.type === "characterData") {
-          const style = enclosingStyle(mutation.target);
-          if (style) flattenStyleElement(style);
-          continue;
-        }
         if (mutation.type === "childList") {
-          const targetStyle = enclosingStyle(mutation.target);
-          if (targetStyle) flattenStyleElement(targetStyle);
           mutation.addedNodes.forEach((node) => {
-            const style = enclosingStyle(node);
-            if (style) flattenStyleElement(style);
-            else if (node.nodeType === 1) processTree(node as Element);
+            if (node.nodeType !== 1) return;
+            const el = node as Element;
+            if (el.tagName === "STYLE") flattenStyleElement(el as HTMLStyleElement);
+            else processTree(el);
           });
+        } else if (mutation.type === "characterData") {
+          const parent = mutation.target.parentNode as Element | null;
+          if (parent && parent.tagName === "STYLE") {
+            flattenStyleElement(parent as HTMLStyleElement);
+          }
         }
       }
     });
