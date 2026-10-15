@@ -69,6 +69,64 @@ function viewportUnitFallback() {
 }
 viewportUnitFallback.postcss = true;
 
+/**
+ * Plugin 3: color-mix() fallback for old WebViews (COMPLEMENTARY to the preset).
+ *
+ * postcss-preset-env can only lower `color-mix()` when every colour argument is
+ * statically resolvable. Vuetify mixes a *runtime* custom property with
+ * `transparent`:
+ *   color-mix(in srgb, var(--v-elevation-overlay-color) 8%, transparent)
+ * The value depends on the active theme, so the preset leaves it untouched — and
+ * Chromium 91 (needs Chrome 111+) drops the whole declaration. Because the overlay
+ * colour resolves to an RGB triplet at runtime (`elevation-overlay-color` is a
+ * `#rrggbb` value in src/plugins/vuetify.ts, so Vuetify serialises it to `r, g, b`),
+ * the mix is arithmetically just `rgba(<triplet>, 0.08)`.
+ *
+ * Handled shapes — the themable color-mix surface of Vuetify 4.2 (i.e. the mixes
+ * whose only unknown is a runtime custom property and whose other operand is
+ * `transparent`):
+ *   color-mix(in srgb, var(--c) N%, transparent)
+ *       -> rgba(var(--c), N/100)
+ *   color-mix(in srgb, rgb(var(--c)) calc(var(--o) * 100%), transparent)
+ *       -> rgba(var(--c), var(--o))
+ *   color-mix(in srgb, rgb(var(--c)) N%, transparent)
+ *       -> rgba(var(--c), N/100)
+ * Anything the plugin cannot rewrite is left alone (never silently dropped): the
+ * few remaining mixes combine a runtime triplet with an *opaque* literal
+ * (e.g. `rgb(var(--v-theme-surface-variant)) 20%, #888`), which has no exact
+ * static lowering without knowing the active theme — those keep Vuetify's base
+ * track/thumb declarations on engines that drop the declaration.
+ */
+function colorMixFallback() {
+  const OPACITY =
+    /color-mix\(\s*in\s+srgb\s*,\s*rgb\(var\((--[\w-]+)\)\)\s+calc\(var\((--[\w-]+)\)\s*\*\s*100%\)\s*,\s*transparent\s*\)/gi;
+  const RGB_TRANSPARENT =
+    /color-mix\(\s*in\s+srgb\s*,\s*rgb\(var\((--[\w-]+)\)\)\s+([\d.]+)%\s*,\s*transparent\s*\)/gi;
+  const OVERLAY =
+    /color-mix\(\s*in\s+srgb\s*,\s*var\((--[\w-]+)\)\s+([\d.]+)%\s*,\s*transparent\s*\)/gi;
+  return {
+    postcssPlugin: "color-mix-fallback",
+    Declaration(decl) {
+      if (!decl.value || decl.value.indexOf("color-mix") === -1) return;
+      let value = decl.value;
+      value = value.replace(
+        OPACITY,
+        (_m, color, opacity) => `rgba(var(${color}), var(${opacity}))`,
+      );
+      value = value.replace(
+        RGB_TRANSPARENT,
+        (_m, color, pct) => `rgba(var(${color}), ${Number(pct) / 100})`,
+      );
+      value = value.replace(
+        OVERLAY,
+        (_m, color, pct) => `rgba(var(${color}), ${Number(pct) / 100})`,
+      );
+      if (value !== decl.value) decl.value = value;
+    },
+  };
+}
+colorMixFallback.postcss = true;
+
 export default {
   // Array form of PRE-INSTANTIATED plugins. Vite's array branch does not accept
   // a `[name, options]` tuple (it only filters the list), so each plugin is
@@ -87,5 +145,6 @@ export default {
       },
     }),
     viewportUnitFallback(),
+    colorMixFallback(),
   ],
 };

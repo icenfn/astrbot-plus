@@ -4,6 +4,7 @@ import App from "./App.vue";
 import router from "./router";
 import vuetify from "./plugins/vuetify";
 import "./styles/main.scss";
+import { installLegacyCssCompat } from "./compat/legacy-css";
 
 // --- Mobile: disable pinch-to-zoom ---------------------------------------
 // The viewport meta (user-scalable=no + maximum-scale=1) covers most cases;
@@ -60,6 +61,11 @@ window.__astrbotApplyInsets = (top, bottom, left, right, keyboard = 0) => {
   // re-pin the message list to the bottom).
   window.dispatchEvent(new CustomEvent("astrbot:viewport"));
 };
+
+// Flatten Vuetify's JavaScript-injected theme stylesheet on engines without CSS
+// `@layer` (Android WebView 91) — otherwise the whole theme stylesheet is
+// discarded and the palette / elevation overlays never apply.
+installLegacyCssCompat();
 
 const app = createApp(App);
 

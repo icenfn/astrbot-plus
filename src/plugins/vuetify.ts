@@ -38,6 +38,12 @@ const telegramDark: ThemeDefinition = {
     "medium-emphasis-opacity": 0.68,
     "hover-opacity": 0.06,
     "activated-opacity": 0.1,
+    // Overlay colour used by Vuetify's elevation / hover mixes. A `#rrggbb`
+    // value makes Vuetify serialise it to an `r, g, b` triplet, which lets the
+    // build-time color-mix() fallback emit
+    // `rgba(var(--v-elevation-overlay-color), α)` for old WebViews (a keyword
+    // like `white`/`black` would not resolve inside `rgba()`).
+    "elevation-overlay-color": "#FFFFFF",
   },
 };
 
@@ -69,6 +75,8 @@ const telegramLight: ThemeDefinition = {
     "medium-emphasis-opacity": 0.6,
     "hover-opacity": 0.05,
     "activated-opacity": 0.09,
+    // Light theme overlays darken (see the dark theme note above).
+    "elevation-overlay-color": "#000000",
   },
 };
 

@@ -33,13 +33,6 @@ const displaySeed = computed(() => agent.value?.avatarSeed || botId.value);
 const config = ref<PluginConfig | null>(null);
 const loadingConfig = ref(false);
 
-const enabledText = computed(() => {
-  const e = agent.value?.enabled;
-  if (e === true) return "已启用";
-  if (e === false) return "已停用";
-  return "未知";
-});
-
 async function loadConfig(): Promise<void> {
   if (!settings.connected) return;
   loadingConfig.value = true;
@@ -74,29 +67,9 @@ onMounted(loadConfig);
           </v-list-item>
           <v-list-item
             prepend-icon="mdi-account-outline"
-            title="显示名称"
+            title="昵称"
             :subtitle="displayName"
           />
-          <v-list-item
-            prepend-icon="mdi-connection"
-            title="平台适配器"
-            :subtitle="agent?.platform || '—'"
-          />
-          <v-list-item
-            prepend-icon="mdi-toggle-switch-outline"
-            title="启用状态"
-            :subtitle="enabledText"
-          >
-            <template #append>
-              <v-chip
-                size="small"
-                variant="tonal"
-                :color="agent?.enabled === false ? 'error' : 'success'"
-              >
-                {{ enabledText }}
-              </v-chip>
-            </template>
-          </v-list-item>
         </v-list>
       </v-card>
 
@@ -121,11 +94,6 @@ onMounted(loadConfig);
             prepend-icon="mdi-tag-outline"
             title="插件版本"
             :subtitle="config?.version || '—'"
-          />
-          <v-list-item
-            prepend-icon="mdi-lan-connect"
-            title="插件端口"
-            :subtitle="config?.port != null ? String(config.port) : '—'"
           />
         </v-list>
         <p v-if="!settings.connected" class="hint">

@@ -262,17 +262,41 @@ export const useChatStore = defineStore("chat", () => {
       return;
     }
 
-    // Merge with any locally-streamed messages that the server hasn't persisted
-    // yet, keyed by role + text to avoid duplicates.
-    const seen = new Set(history.map((m) => `${m.role}:${m.text}`));
-    const merged: ChatMessage[] = history.map((m) => ({
-      role: m.role,
-      text: m.text,
-      created_at: tsToIso(m.ts),
-    }));
-    for (const m of local) {
-      if (!seen.has(`${m.role}:${m.text}`)) merged.push(m);
+    // Merge the server history with any locally-streamed messages it has not
+    // persisted yet, then order the whole thread chronologically.
+    //
+    // Two defects lived here before:
+    //   • the overlap was keyed by `role + text` alone, so genuinely repeated
+    //     messages (the same question asked twice) collapsed into one and the
+    //     restored thread looked shorter than it really is — the「少获取」symptom.
+    //     The key now also carries the timestamp (rounded to the second), so
+    //     distinct turns survive while the true server/local overlap is still
+    //     de-duplicated.
+    //   • leftover local messages were appended at the tail, so any message that
+    //     predated the server's newest batch rendered out of order. A stable sort
+    //     by `created_at` fixes the occasional mis-ordering.
+    const threadKey = (role: string, text: string, iso: string): string => {
+      const t = new Date(iso).getTime();
+      return `${role}\u0000${text}\u0000${Number.isNaN(t) ? iso : Math.floor(t / 1000)}`;
+    };
+    const seen = new Set<string>();
+    const merged: ChatMessage[] = [];
+    for (const m of history) {
+      const item: ChatMessage = { role: m.role, text: m.text, created_at: tsToIso(m.ts) };
+      const key = threadKey(item.role, item.text, item.created_at);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
     }
+    for (const m of local) {
+      const key = threadKey(m.role, m.text, m.created_at);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(m);
+    }
+    merged.sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
     if (merged.length > THREAD_LIMIT) merged.splice(0, merged.length - THREAD_LIMIT);
     threads.value[id] = merged;
 
