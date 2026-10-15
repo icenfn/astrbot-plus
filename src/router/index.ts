@@ -4,7 +4,11 @@ import { createRouter, createWebHashHistory } from "vue-router";
  * Routing is organised around three PAGE FRAMES (vue-router layout routes),
  * instead of one global application bar hard-wired into `App.vue`:
  *
- *   • HomeLayout    — the 首页 frame for the three primary tabs.
+ *   • HomeLayout    — the 首页 frame. Its three primary tabs (消息 / 联系人 / 我的)
+ *                     are EMBEDDED in the layout and switched locally (see
+ *                     `useHomeTabs`), NOT routed: keeping them mounted preserves
+ *                     each page's scroll position/state, removes the route-switch
+ *                     flicker, and gives the three panes one shared background.
  *   • MessageLayout — the 消息页面 frame for a single open conversation.
  *   • BackLayout    — the generic 带返回按钮 frame for secondary pages.
  *
@@ -16,29 +20,14 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     {
-      // 首页框架 — the primary tabbed shell (消息 / 联系人 / 我的).
+      // 首页框架. The 消息 / 联系人 / 我的 panes are EMBEDDED in HomeLayout and
+      // switched locally via `useHomeTabs` — they are deliberately NOT child
+      // routes, so they stay mounted and share one background. The route keeps the
+      // name `chats` as the identity of the home frame (used by the back handler).
       path: "/",
+      name: "chats",
       component: () => import("@/layouts/HomeLayout.vue"),
-      children: [
-        {
-          path: "",
-          name: "chats",
-          component: () => import("@/views/ChatsView.vue"),
-          meta: { title: "消息" },
-        },
-        {
-          path: "contacts",
-          name: "contacts",
-          component: () => import("@/views/ContactsView.vue"),
-          meta: { title: "联系人" },
-        },
-        {
-          path: "mine",
-          name: "mine",
-          component: () => import("@/views/MineView.vue"),
-          meta: { title: "我的" },
-        },
-      ],
+      meta: { title: "消息" },
     },
     {
       // 消息页面框架 — one open conversation. Routing the open Agent (instead of

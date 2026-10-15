@@ -1,33 +1,16 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
+import { useHomeTabs } from "@/composables/useHomeTabs";
 
-const route = useRoute();
+/**
+ * Desktop side rail — mirrors the mobile tabs. It drives the same embedded
+ * pane switch (`useHomeTabs`) instead of routing, so desktop and mobile share
+ * one navigation model.
+ */
 const settings = useSettingsStore();
 const { isDark } = storeToRefs(settings);
-
-// Desktop rail mirrors the mobile tabs. Settings moved to the「我的」page.
-const items = [
-  { icon: "mdi-forum-outline", active: "mdi-forum", to: "/", label: "消息", name: "chats" },
-  {
-    icon: "mdi-account-multiple-outline",
-    active: "mdi-account-multiple",
-    to: "/contacts",
-    label: "联系人",
-    name: "contacts",
-  },
-  {
-    icon: "mdi-account-circle-outline",
-    active: "mdi-account-circle",
-    to: "/mine",
-    label: "我的",
-    name: "mine",
-  },
-];
-
-const current = computed(() => route.name);
+const { activeHomeTab, homeTabs, selectTab } = useHomeTabs();
 </script>
 
 <template>
@@ -38,15 +21,15 @@ const current = computed(() => route.name);
 
     <nav class="rail-nav">
       <v-btn
-        v-for="item in items"
+        v-for="item in homeTabs"
         :key="item.name"
-        :to="item.to"
-        :icon="current === item.name ? item.active : item.icon"
+        :icon="activeHomeTab === item.name ? item.activeIcon : item.icon"
         variant="text"
         :ripple="false"
         class="rail-btn"
-        :class="{ 'is-active': current === item.name }"
+        :class="{ 'is-active': activeHomeTab === item.name }"
         :title="item.label"
+        @click="selectTab(item.name)"
       />
     </nav>
 

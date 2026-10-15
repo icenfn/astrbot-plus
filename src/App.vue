@@ -8,6 +8,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
 import { useVisualViewport } from "@/composables/useVisualViewport";
 import { useWindow } from "@/composables/useWindow";
+import { useHomeTabs } from "@/composables/useHomeTabs";
 import { requestBackgroundRun } from "@/composables/useBackground";
 
 /**
@@ -27,6 +28,7 @@ const chat = useChatStore();
 const { isDark, connected } = storeToRefs(settings);
 const { activeKey } = storeToRefs(chat);
 const { installCloseHandler } = useWindow();
+const { activeHomeTab, selectTab } = useHomeTabs();
 
 // Keep the app shell pinned to the visual viewport (keyboard-safe).
 useVisualViewport();
@@ -80,13 +82,26 @@ watch(activeKey, (key) => {
 // Android hardware back button: close an open conversation first, then leave
 // any non-tab page back to the home tab.
 function onAndroidBack(): void {
+  // 1) An open conversation → back to the 首页 frame (the chat store follows the route).
   if (activeKey.value) {
     void router.push("/");
     return;
   }
-  const name = route.name;
-  const isTab = name === "chats" || name === "contacts" || name === "mine";
-  if (!isTab) void router.push("/");
+  // 2) Any secondary page (设置 / 关于 / Agent 信息 …) → back to the 首页 frame.
+  if (route.name !== "chats") {
+    void router.push("/");
+    return;
+  }
+  // 3) On the 首页 frame: first return to the primary (消息) tab; if we are already
+  //    on it, hand the back press to Android so the app goes to the launcher WITHOUT
+  //    being finished —「从 app 回到桌面，app 不退出不关闭」.
+  if (activeHomeTab.value !== "chats") {
+    selectTab("chats");
+    return;
+  }
+  (
+    window as unknown as { AstrbotNative?: { moveToBackground?: () => void } }
+  ).AstrbotNative?.moveToBackground?.();
 }
 
 // Android 硬件返回键：交给 @vueuse/core，组件卸载时自动解绑。

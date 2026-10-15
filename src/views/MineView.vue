@@ -61,7 +61,8 @@ const menu: MenuItem[] = [
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: rgb(var(--v-theme-background));
+  /* Unify with the 消息 list surface (was --v-theme-background). */
+  background: rgb(var(--v-theme-surface));
 }
 .mine-scroll {
   flex: 1 1 auto;

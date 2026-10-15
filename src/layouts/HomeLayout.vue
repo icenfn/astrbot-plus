@@ -1,19 +1,25 @@
 <script setup lang="ts">
 import { usePlatform } from "@/composables/usePlatform";
+import { useHomeTabs } from "@/composables/useHomeTabs";
 import AppTopBar from "@/components/AppTopBar.vue";
 import AppSidebar from "@/components/AppSidebar.vue";
 import AppMobileNav from "@/components/AppMobileNav.vue";
+import ChatsView from "@/views/ChatsView.vue";
+import ContactsView from "@/views/ContactsView.vue";
+import MineView from "@/views/MineView.vue";
 
 /**
  * HomeLayout — the app 首页 (home) frame.
  *
- * This is the vue-router layout for the three primary tabs (消息 / 联系人 / 我的):
- * an application bar whose title comes from the active child route's
- * `meta.title`, a desktop side rail, the routed page, and — on mobile — the
- * bottom tab bar. The application bar is no longer hard-wired into `App.vue`;
- * each frame owns the chrome appropriate to its pages.
+ * The three primary pages (消息 / 联系人 / 我的) are EMBEDDED here and switched with
+ * `v-show` (driven by `useHomeTabs`) instead of vue-router. This keeps each page
+ * mounted, preserves its scroll position/state, removes the route-switch flicker,
+ * and lets the three panes share one background — the reported colour mismatch
+ * between the three pages. The bottom tab bar / desktop rail toggle the pane; the
+ * application bar reads its title from the active pane.
  */
 const { isMobile } = usePlatform();
+const { activeHomeTab } = useHomeTabs();
 </script>
 
 <template>
@@ -22,7 +28,9 @@ const { isMobile } = usePlatform();
     <div class="home-body">
       <AppSidebar v-if="!isMobile" />
       <div class="home-view">
-        <router-view />
+        <ChatsView v-show="activeHomeTab === 'chats'" />
+        <ContactsView v-show="activeHomeTab === 'contacts'" />
+        <MineView v-show="activeHomeTab === 'mine'" />
       </div>
     </div>
     <AppMobileNav v-if="isMobile" />
@@ -37,6 +45,8 @@ const { isMobile } = usePlatform();
   flex-direction: column;
   height: 100%;
   overflow: hidden;
+  /* One shared surface colour for all three panes (matches the 消息 list page). */
+  background: rgb(var(--v-theme-surface));
 }
 .home-body {
   flex: 1 1 auto;
@@ -51,5 +61,11 @@ const { isMobile } = usePlatform();
   min-height: 0;
   display: flex;
   overflow: hidden;
+}
+/* Embedded panes (they no longer get sized by <router-view/>). */
+.home-view > * {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
 }
 </style>

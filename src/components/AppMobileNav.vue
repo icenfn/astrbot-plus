@@ -1,49 +1,36 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { useRoute } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "@/stores/chat";
+import { useHomeTabs } from "@/composables/useHomeTabs";
 
-const route = useRoute();
+/**
+ * Mobile bottom tab bar.
+ *
+ * The three tabs (消息 / 联系人 / 我的) no longer navigate routes — they switch the
+ * embedded panes inside HomeLayout via `useHomeTabs`, so the tab bar stays mounted
+ * and no page reloads on switch.
+ */
 const chat = useChatStore();
 const { totalUnread } = storeToRefs(chat);
+const { activeHomeTab, homeTabs, selectTab } = useHomeTabs();
 
-// Three primary tabs: 消息 / 联系人 / 我的. Settings is no longer a tab — it
-// lives behind the「我的」page.
-const tabs = [
-  { to: "/", name: "chats", label: "消息", icon: "mdi-forum-outline", active: "mdi-forum" },
-  {
-    to: "/contacts",
-    name: "contacts",
-    label: "联系人",
-    icon: "mdi-account-multiple-outline",
-    active: "mdi-account-multiple",
-  },
-  {
-    to: "/mine",
-    name: "mine",
-    label: "我的",
-    icon: "mdi-account-circle-outline",
-    active: "mdi-account-circle",
-  },
-];
-
-const current = computed(() => route.name);
-const unreadLabel = computed(() => (totalUnread.value > 99 ? "99+" : String(totalUnread.value)));
+const unreadLabel = computed(() =>
+  totalUnread.value > 99 ? "99+" : String(totalUnread.value),
+);
 </script>
 
 <template>
   <nav class="tabbar">
     <v-btn
-      v-for="tab in tabs"
+      v-for="tab in homeTabs"
       :key="tab.name"
-      :to="tab.to"
-      :active="current === tab.name"
       variant="text"
       :ripple="false"
       stacked
       class="tab"
-      :class="{ 'is-active': current === tab.name }"
+      :class="{ 'is-active': activeHomeTab === tab.name }"
+      @click="selectTab(tab.name)"
     >
       <v-badge
         v-if="tab.name === 'chats'"
@@ -53,9 +40,16 @@ const unreadLabel = computed(() => (totalUnread.value > 99 ? "99+" : String(tota
         offset-x="6"
         offset-y="4"
       >
-        <v-icon :icon="current === tab.name ? tab.active : tab.icon" size="24" />
+        <v-icon
+          :icon="activeHomeTab === tab.name ? tab.activeIcon : tab.icon"
+          size="24"
+        />
       </v-badge>
-      <v-icon v-else :icon="current === tab.name ? tab.active : tab.icon" size="24" />
+      <v-icon
+        v-else
+        :icon="activeHomeTab === tab.name ? tab.activeIcon : tab.icon"
+        size="24"
+      />
       <span class="label">{{ tab.label }}</span>
     </v-btn>
   </nav>

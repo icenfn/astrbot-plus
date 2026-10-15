@@ -1,22 +1,43 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useRoute } from "vue-router";
+import { useHomeTabs } from "@/composables/useHomeTabs";
 
 /**
- * AppTopBar — a title-only application bar.
+ * AppTopBar — title-only application bar for the home frame.
  *
- * The title is derived from the active route's `meta.title`. The back button now
- * belongs to `BackLayout`, so this bar only needs to render the title for the
- * home and message frames.
+ * On the home frame the title follows the active embedded pane (消息 / 联系人 / 我的);
+ * on other frames it falls back to the route's `meta.title`. On the 联系人 pane a
+ * search button is shown on the right (toggling the contacts search field).
  */
 const route = useRoute();
+const { activeTab, activeHomeTab, searchOpen } = useHomeTabs();
 
-const title = computed(() => (route.meta.title as string | undefined) ?? "AstrBot+");
+const onHome = computed(() => route.name === "chats");
+const title = computed(() =>
+  onHome.value
+    ? activeTab.value.title
+    : ((route.meta.title as string | undefined) ?? "AstrBot+"),
+);
+
+function toggleSearch(): void {
+  searchOpen.value = !searchOpen.value;
+}
 </script>
 
 <template>
   <v-toolbar class="app-topbar" density="comfortable" flat>
     <v-toolbar-title class="app-topbar-title">{{ title }}</v-toolbar-title>
+    <v-spacer />
+    <v-btn
+      v-if="onHome && activeHomeTab === 'contacts'"
+      :icon="searchOpen ? 'mdi-close' : 'mdi-magnify'"
+      variant="text"
+      :ripple="false"
+      class="app-topbar-action"
+      :title="searchOpen ? '关闭搜索' : '搜索'"
+      @click="toggleSearch"
+    />
   </v-toolbar>
 </template>
 
@@ -31,5 +52,9 @@ const title = computed(() => (route.meta.title as string | undefined) ?? "AstrBo
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0;
+}
+.app-topbar-action {
+  color: rgb(var(--v-theme-on-surface));
+  margin-right: 4px;
 }
 </style>

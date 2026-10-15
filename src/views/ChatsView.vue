@@ -54,6 +54,8 @@ const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
   min-width: 0;
   display: flex;
   height: 100%;
+  /* Match the 消息 list surface so all three home panes share one colour. */
+  background: rgb(var(--v-theme-surface));
 }
 .list {
   width: 340px;

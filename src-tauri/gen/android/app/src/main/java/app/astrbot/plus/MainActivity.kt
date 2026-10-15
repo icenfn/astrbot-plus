@@ -107,6 +107,16 @@ class MainActivity : TauriActivity() {
     fun setStatusBarAppearance(light: Boolean) {
       applyBarAppearance(light)
     }
+
+    /**
+     * Send the task to the background (the launcher) WITHOUT finishing it, so the
+     * app keeps running. Used by the web layer when the Android back button is
+     * pressed on the 首页 frame —「从 app 回到桌面，app 不退出不关闭」.
+     */
+    @android.webkit.JavascriptInterface
+    fun moveToBackground() {
+      runOnUiThread { moveTaskToBack(true) }
+    }
   }
 
   /** Store insets (converted from physical px to CSS px) and push them to the WebView. */
