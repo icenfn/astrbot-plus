@@ -107,6 +107,9 @@ onMounted(() => {
 });
 // 视口变化时保持滚动到底部（@vueuse/core 自动解绑）。
 useEventListener(() => window.visualViewport, "resize", onViewportResize);
+// The native shell reports the on-screen keyboard height through this event, so
+// the list re-pins to the bottom when the composer shifts above the keyboard.
+useEventListener(window, "astrbot:viewport", onViewportResize);
 </script>
 
 <template>
@@ -190,7 +193,8 @@ useEventListener(() => window.visualViewport, "resize", onViewportResize);
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 16px;
+  /* Top safe area: clear the status bar / notch on edge-to-edge mobile. */
+  padding: calc(12px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 16px 12px;
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }

@@ -71,6 +71,8 @@ useEventListener(() => window.visualViewport, "resize", onViewportResize);
 useEventListener(() => window.visualViewport, "scroll", onViewportResize);
 // Fallback for WebViews where the visual viewport events are flaky.
 useEventListener(window, "resize", onViewportResize);
+// Native keyboard-height updates (see main.ts) — reflow the composer above the IME.
+useEventListener(window, "astrbot:viewport", onViewportResize);
 
 onBeforeUnmount(() => {
   timers.forEach((id) => window.clearTimeout(id));
@@ -128,8 +130,10 @@ function onKeydown(e: KeyboardEvent) {
 <style scoped>
 .composer {
   flex: 0 0 auto;
-  /* extra bottom padding clears the home indicator / gesture bar */
-  padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  /* Bottom safe area: clears the home indicator / gesture bar. Uses the
+     natively-reported value when available (env() reports 0 on edge-to-edge
+     Android), and the keyboard-aware inset drops to 0 while the IME is open. */
+  padding: 10px 16px calc(14px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   background: rgb(var(--v-theme-surface));
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }

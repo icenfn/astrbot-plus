@@ -4,9 +4,6 @@ import { readFileSync } from "node:fs";
 import vue from "@vitejs/plugin-vue";
 import vuetify from "vite-plugin-vuetify";
 import legacy from "@vitejs/plugin-legacy";
-import { browserslistToTargets } from "lightningcss";
-import browserslist from "browserslist";
-import { legacyCssCompat } from "./scripts/css-legacy-compat.mjs";
 
 const pkg = JSON.parse(
   readFileSync(fileURLToPath(new URL("./package.json", import.meta.url)), "utf-8"),
@@ -25,19 +22,14 @@ const pkg = JSON.parse(
  * A modern-only build with `modernPolyfills: false` and `build.target: 'esnext'`
  * hands WebView 91 syntax/runtime it cannot run.
  *
- * Collaboration boundary with LightningCSS (see scripts/css-legacy-compat.mjs):
- *   • LightningCSS → lowers the STYLESHEET (vendor prefixes / modern CSS syntax)
- *                    to `CSS_TARGETS`; the two gaps it leaves (@layer + dynamic
- *                    viewport units) are closed by the local pure-JS plugin.
+ * Collaboration boundary with PostCSS (see postcss.config.js):
+ *   • PostCSS  → lowers the STYLESHEET (vendor prefixes / modern CSS syntax).
  *   • legacy   → lowers the JAVASCRIPT (syntax via babel + runtime via core-js)
  *                and emits the SystemJS bundle for pre-ESM browsers.
  * Both derive from the same dependency floor so the two layers never disagree;
  * they do not overlap, so there is no double-processing conflict.
  */
 const LEGACY_TARGETS = ["chrome >= 61", "safari >= 12", "firefox >= 60", "edge >= 79"];
-// LightningCSS targets for the STYLESHEET, derived from the same browserslist
-// floor the JS/legacy layer uses, so CSS and JS never disagree.
-const CSS_TARGETS = browserslistToTargets(browserslist());
 // Chromium 87 is used as the modern floor — slightly below WebView 91 so there
 // is head-room for other aged Chromium WebViews.
 const MODERN_TARGETS = ["chrome >= 87", "safari >= 13", "firefox >= 78", "edge >= 87"];
@@ -216,10 +208,6 @@ export default defineConfig({
       modernPolyfills: MODERN_POLYFILLS,
       renderLegacyChunks: true,
     }),
-    // Pure-JS (non-PostCSS) pass that closes the two gaps LightningCSS leaves:
-    // `@layer` flattening and dynamic-viewport-unit fallbacks. Runs last, on the
-    // emitted CSS assets.
-    legacyCssCompat(),
   ],
   define: {
     // Build-time app version for the 关于 page fallback (non-Tauri contexts).
@@ -242,28 +230,12 @@ export default defineConfig({
     },
   },
   envPrefix: ["VITE_", "TAURI_"],
-  // CSS pipeline: LightningCSS replaces the former PostCSS setup.
-  //   • transformer — lowers modern CSS syntax (nesting, color-mix, oklch,
-  //     logical properties, media ranges, …) to the SAME browserslist floor the
-  //     JS layer uses.
-  //   • targets     — the shared floor, derived from `browserslist`.
-  //   • customMedia — LightningCSS draft needed to keep `@custom-media` working.
-  // The two things LightningCSS cannot do (@layer flattening + dynamic viewport
-  // units) are handled by `legacyCssCompat()` in `plugins`.
-  css: {
-    transformer: "lightningcss",
-    lightningcss: {
-      targets: CSS_TARGETS,
-      drafts: { customMedia: true },
-    },
-  },
   build: {
     // esbuild syntax down-levelling matches the modern baseline; the legacy
     // chunks get an even lower target from the plugin above.
     target: MODERN_TARGETS,
-    // Minify CSS with LightningCSS too (replaces the default esbuild minifier),
-    // which also prevents it from emitting syntax old WebViews cannot parse.
-    cssMinify: "lightningcss",
+    // Keep CSS minification from emitting syntax old WebViews cannot parse.
+    cssTarget: "chrome61",
     sourcemap: false,
     chunkSizeWarningLimit: 3000,
   },

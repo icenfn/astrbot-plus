@@ -29,21 +29,36 @@ window.addEventListener(
   { passive: false },
 );
 
-// --- Native safe-area bridge ---------------------------------------------
+// --- Native safe-area + keyboard bridge ----------------------------------
 // The Android shell (MainActivity) draws edge-to-edge and forwards the single
-// set of system-bar / cutout insets here as CSS variables, so app chrome pads
-// for them exactly once. The CSS falls back to env() on other platforms.
+// set of system-bar / cutout insets AND the on-screen keyboard (IME) height here
+// as CSS variables, so app chrome pads for the safe area exactly once and the
+// message composer can lift above the keyboard. The CSS falls back to env() on
+// platforms without this bridge.
 declare global {
   interface Window {
-    __astrbotApplyInsets?: (top: number, bottom: number, left: number, right: number) => void;
+    __astrbotApplyInsets?: (
+      top: number,
+      bottom: number,
+      left: number,
+      right: number,
+      keyboard?: number,
+    ) => void;
   }
 }
-window.__astrbotApplyInsets = (top, bottom, left, right) => {
+window.__astrbotApplyInsets = (top, bottom, left, right, keyboard = 0) => {
   const s = document.documentElement.style;
   s.setProperty("--safe-area-inset-top", `${top}px`);
   s.setProperty("--safe-area-inset-bottom", `${bottom}px`);
   s.setProperty("--safe-area-inset-left", `${left}px`);
   s.setProperty("--safe-area-inset-right", `${right}px`);
+  // On-screen keyboard (IME) height — consumed by useVisualViewport() to shrink
+  // the shell so the composer sits directly above the keyboard on edge-to-edge
+  // Android, where the WebView is not resized for the keyboard.
+  s.setProperty("--keyboard-height", `${keyboard}px`);
+  // Let the shell and the message page react immediately (recompute height,
+  // re-pin the message list to the bottom).
+  window.dispatchEvent(new CustomEvent("astrbot:viewport"));
 };
 
 const app = createApp(App);

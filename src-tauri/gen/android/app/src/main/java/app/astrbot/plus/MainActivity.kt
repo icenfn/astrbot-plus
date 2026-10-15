@@ -15,24 +15,22 @@ class MainActivity : TauriActivity() {
   private var insetBottom = 0
   private var insetLeft = 0
   private var insetRight = 0
+  // Height of the on-screen keyboard (IME), in CSS px. 0 when it is hidden.
+  private var keyboardHeight = 0
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
     // --- Edge-to-edge, single source of insets ------------------------------
-    // Previously the decorView was padded by the raw system-bar insets *and* the
-    // web CSS padded app chrome with env(safe-area-inset-*). On devices that
-    // already report non-zero safe-area values (cutouts / gesture navigation)
-    // those two layers stacked up, producing the oversized top/bottom black
-    // bars. (targetSdk 35+ additionally forces edge-to-edge, so the old
-    // decoration-fitting padding was applied on top of a window that no longer
-    // inset itself — i.e. twice.)
+    // The decorView is intentionally NOT padded here: doing so on top of a window
+    // that already insets itself (cutouts / gesture navigation) applied the safe
+    // area twice and produced the oversized top/bottom black bars.
     //
-    // Now we draw edge-to-edge and forward the system-bar / cutout insets to the
-    // WebView exactly ONCE, as `--safe-area-inset-*` CSS variables. The web layer
-    // reads those variables (falling back to env() elsewhere), so insets are
-    // applied a single time and the dark window background no longer shows
-    // through behind the bars.
+    // We draw edge-to-edge and forward the system-bar / cutout insets to the
+    // WebView exactly ONCE, as `--safe-area-inset-*` CSS variables, plus the IME
+    // (keyboard) height as `--keyboard-height`. The web layer reads those
+    // variables (falling back to env() elsewhere), so insets are applied a single
+    // time and the dark window background no longer shows through behind the bars.
     WindowCompat.setDecorFitsSystemWindows(window, false)
     makeSystemBarsTransparent()
 
@@ -41,7 +39,12 @@ class MainActivity : TauriActivity() {
       val bars = insets.getInsets(
         WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
       )
-      applyInsets(bars.top, bars.bottom, bars.left, bars.right)
+      // The soft keyboard arrives as its own inset. Because the app is
+      // edge-to-edge (and targetSdk 35+ forces it), the WebView is NOT resized
+      // for the keyboard, so the web layer relies on this value to lift the
+      // message composer above the keyboard instead of hiding it.
+      val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+      applyInsets(bars.top, bars.bottom, bars.left, bars.right, ime)
       insets
     }
     ViewCompat.requestApplyInsets(decor)
@@ -56,7 +59,11 @@ class MainActivity : TauriActivity() {
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
-    if (hasFocus) deliverInsets()
+    if (hasFocus) {
+      // Focus changes (e.g. returning from the IME) can change the insets.
+      ViewCompat.requestApplyInsets(window.decorView)
+      deliverInsets()
+    }
   }
 
   private fun makeSystemBarsTransparent() {
@@ -70,18 +77,27 @@ class MainActivity : TauriActivity() {
   }
 
   /** Store insets (converted from physical px to CSS px) and push them to the WebView. */
-  private fun applyInsets(topPx: Int, bottomPx: Int, leftPx: Int, rightPx: Int) {
+  private fun applyInsets(topPx: Int, bottomPx: Int, leftPx: Int, rightPx: Int, imePx: Int) {
     val density = resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
     insetTop = (topPx / density).toInt()
-    insetBottom = (bottomPx / density).toInt()
     insetLeft = (leftPx / density).toInt()
     insetRight = (rightPx / density).toInt()
+
+    val barsBottomCss = (bottomPx / density).toInt()
+    val imeCss = (imePx / density).toInt()
+    // The on-screen keyboard overlays the navigation bar, so the two must never
+    // both be consumed: expose only the part of the bar the keyboard does not
+    // already cover. When the keyboard is open this is 0 (no extra gap); when it
+    // is closed it is the full gesture-bar height.
+    insetBottom = (barsBottomCss - imeCss).coerceAtLeast(0)
+    keyboardHeight = imeCss
+
     deliverInsets()
   }
 
   private fun deliverInsets() {
     val web = findWebView() ?: return
-    val js = "window.__astrbotApplyInsets&&window.__astrbotApplyInsets($insetTop,$insetBottom,$insetLeft,$insetRight);"
+    val js = "window.__astrbotApplyInsets&&window.__astrbotApplyInsets($insetTop,$insetBottom,$insetLeft,$insetRight,$keyboardHeight);"
     web.post { web.evaluateJavascript(js, null) }
   }
 

@@ -1,8 +1,9 @@
-## v0.4.16
+## v0.4.17
 
 ### 修复
-- 📱 **修复部分机型顶部/底部安全距离过大、出现黑边**：原生 `MainActivity` 会在边到边（edge-to-edge）窗口上再对 `decorView` 施加一次系统栏/刘海内边距，与 Web 层 `env(safe-area-inset-*)` 叠加；在会报告非零安全区的机型（刘海屏 / 手势导航）上内边距被计算两次，且窗口背景从状态栏/导航栏区域透出，表现为上下「留黑」。现改为真正的 edge-to-edge：移除原生 `decorView` 内边距，改由原生把系统栏/刘海内边距以 `--safe-area-inset-*` CSS 变量**一次性**下发给 WebView（`window.__astrbotApplyInsets`），Web 层统一以 `var(--safe-area-inset-top, env(safe-area-inset-top, 0px))` 形式消费，内边距只应用一次。
+- 💬 **修复消息页面顶部/底部没有安全边距**：`ChatWindow` 的会话头部此前缺少顶部安全区，现补上 `var(--safe-area-inset-top, env(safe-area-inset-top, 0px))`，会话页标题栏不再顶到状态栏/刘海下。
+- ⌨️ **修复消息页面底部输入框被系统输入法（键盘）遮住**：这是上一版改为 edge-to-edge 后遗留的问题——WebView 不再随键盘自动缩放，输入框被键盘盖住。现由原生 `MainActivity` 监听 IME inset，把键盘高度以 `--keyboard-height` 变量下发给 WebView（`window.__astrbotApplyInsets(..., keyboard)`），并在打开键盘时让 `--safe-area-inset-bottom` 扣掉键盘占用的高度（避免「键盘 + 导航栏」重复留白）。前端 `useVisualViewport` 以「关闭键盘时的最大布局高度 − 键盘高度」计算 `--app-height`，锁定 body 滚动并重新吸附到底部，输入框始终贴在键盘正上方。
 
-### 构建
-- 🧩 **完全移除 PostCSS，改用 LightningCSS**：Vite 的 `css.transformer` 与 `build.cssMinify` 均切换为 `lightningcss`，CSS 目标浏览器取自与 JS 层一致的同一份 `browserslist`（`browserslistToTargets`）。LightningCSS 自身不处理的两处缺口由纯 JS 的本地插件 `scripts/css-legacy-compat.mjs` 补齐：① 级联层压平——按 `:not(#\#)` 特异性重编码（保持 Vuetify 4 的层叠顺序，Chromium < 99 不认识 `@layer` 会整块丢弃）；② 动态视口单位回退——为 `dvh/svh/lvh/dvw/svw/lvw` 注入 `vh/vw` 静态回退（Chromium < 108 无法解析动态视口单位）。移除 `postcss` / `postcss-preset-env` / `autoprefixer` 依赖及 `postcss.config.js`。
-- 🔖 版本号提升至 `0.4.16`（`package.json` / `tauri.conf.json` / `Cargo.toml` 同步）。
+### 变更
+- 🧩 **回退为 PostCSS + polyfill**：撤销上一版的 LightningCSS 方案，恢复 `postcss.config.js`（`postcss-preset-env` stage 2 + 本地 viewport-unit-fallback 插件）与原始的 Vite CSS 配置，移除 `lightningcss`/`browserslist` 依赖、恢复 `postcss`/`postcss-preset-env`/`autoprefixer`，继续支持 Android WebView ≥ 90。并修正 viewport-unit-fallback 插件对动态视口单位的匹配——原先用 `\b(dvh|…)` 无法命中 `100dvh`（`0` 与 `d` 之间没有词边界），导致 WebView 90+ 缺少 `vh` 回退；现改为「数字 + 单位」匹配，`100dvh`、`calc(100dvh - …)`、`0.5svh` 等均能正确生成 `vh/vw` 回退。
+- 🔖 版本号提升至 `0.4.17`。
