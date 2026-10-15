@@ -38,6 +38,7 @@ const unreadLabel = computed(() => (totalUnread.value > 99 ? "99+" : String(tota
       v-for="tab in tabs"
       :key="tab.name"
       :to="tab.to"
+      :active="current === tab.name"
       variant="text"
       :ripple="false"
       stacked

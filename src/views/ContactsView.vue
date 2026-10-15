@@ -57,11 +57,11 @@ const groups = computed(() => {
 <template>
   <div class="contacts">
     <div class="contacts-scroll chat-scroll">
-      <v-list class="contacts-list" lines="two">
+      <v-list class="contacts-list" lines="one">
         <v-list-item v-for="q in quick" :key="q.name" :title="q.name" link>
           <template #prepend>
-            <v-avatar :color="q.color" size="44" rounded="lg">
-              <v-icon :icon="q.icon" color="white" />
+            <v-avatar :color="q.color" variant="tonal" size="44" rounded="lg">
+              <v-icon :icon="q.icon" :color="q.color" />
             </v-avatar>
           </template>
         </v-list-item>
@@ -72,7 +72,6 @@ const groups = computed(() => {
           v-for="a in agents"
           :key="a.name"
           :title="a.name"
-          :subtitle="a.desc"
           link
         >
           <template #prepend>
@@ -86,7 +85,6 @@ const groups = computed(() => {
             v-for="c in group.contacts"
             :key="c.name"
             :title="c.name"
-            :subtitle="c.desc"
             link
           >
             <template #prepend>
@@ -114,5 +112,16 @@ const groups = computed(() => {
 }
 .contacts-list {
   background: transparent;
+  padding-top: 4px;
+}
+/* Even, comfortable rhythm between contact rows and their A–Z headers. */
+.contacts-list :deep(.v-list-item) {
+  margin-bottom: 6px;
+}
+.contacts-list :deep(.v-list-item:last-child) {
+  margin-bottom: 0;
+}
+.contacts-list :deep(.v-list-subheader) {
+  margin-top: 8px;
 }
 </style>

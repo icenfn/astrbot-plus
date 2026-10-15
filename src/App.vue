@@ -34,7 +34,17 @@ useVisualViewport();
 // Keep the Vuetify theme in sync with the settings store.
 watch(
   isDark,
-  (dark) => theme.change(dark ? "telegramDark" : "telegramLight"),
+  (dark) => {
+    theme.change(dark ? "telegramDark" : "telegramLight");
+    // Keep the Android status / navigation bar icons legible against the app
+    // surface (light surface ⇒ dark icons). No-op on desktop/web where the
+    // bridge is absent.
+    (
+      window as unknown as {
+        AstrbotNative?: { setStatusBarAppearance?: (light: boolean) => void };
+      }
+    ).AstrbotNative?.setStatusBarAppearance?.(!dark);
+  },
   { immediate: true },
 );
 

@@ -102,11 +102,18 @@ function badge(id: string): string {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 6px;
+  padding: 8px;
 }
 .rows-list {
   background: transparent;
   padding: 0;
+}
+/* Breathing room between conversation rows. */
+.rows-list :deep(.v-list-item) {
+  margin-bottom: 4px;
+}
+.rows-list :deep(.v-list-item:last-child) {
+  margin-bottom: 0;
 }
 .loading,
 .empty {

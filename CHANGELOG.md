@@ -1,3 +1,22 @@
+## v0.4.19
+
+### 修复
+- 🔔 **修复系统状态栏不显示**：应用为 edge-to-edge（透明状态栏/导航栏），此前状态栏图标沿用系统默认的浅色，在浅色主题的浅背景上「隐形」。现由原生 `MainActivity` 用 `WindowInsetsControllerCompat` 设置 `isAppearanceLightStatusBars` / `isAppearanceLightNavigationBars`，并按「浅色主题→深色图标」的规则与主题保持同步；同时新增 `window.AstrbotNative.setStatusBarAppearance()` 桥接，前端在主题变更时实时下发，桌面/网页环境自动跳过。
+- 🌗 **修复旧版 Android WebView（91 等 Chromium < 99）下主题实时切换失效、切主题后组件变黑块**：上一版的运行时去 `@layer` 兼容层只在启动时扫描一次，且观察器仅处理「元素节点」。而 Vuetify 切换主题是通过给 `#vuetify-theme-stylesheet` 赋值 `innerHTML` 完成的，产生的是**文本节点**变更，兼容层因此漏掉——新注入的 `@layer` 主题样式表没有被压平，WebView 91 索性整表丢弃，于是 `--v-theme-*` / 阴影 / 状态色变量全部丢失，组件渲染成黑块、`switch`、`btn` 等也不再跟随主题色。现改为：观察器同时处理 `characterData` 与 `childList`，并从变更目标与新增节点向上回溯定位所属 `<style>` 后压平，主题切换即时生效、无需重启。
+- 🧭 **修复首页底部 Tab 栏第一个 Tab 永远处于选中态**：底部导航与侧边栏使用 `v-btn :to`，而 Vuetify 的激活判定基于路由前缀匹配，`to="/"` 会匹配所有以 `/` 开头的路径，导致首个 Tab 恒亮（底色与其它未选中项不同）。现显式传入 `:active="current === tab.name"`，由组件自身的当前路由精确控制选中态。
+- 🎨 **修复联系人页顶部快捷入口图标未着色**：快捷入口的图标现使用各自的主题色（`avatar` 采用 `variant="tonal"` 柔和底色 + 同色图标），在深浅主题下都清晰可辨。
+- 📐 **优化消息列表与联系人列表的组件间距**：会话列表行距加大（`padding` 8px、行间 4px），联系人列表改为单行样式、行间 6px 并调整分组标题间距，列表更透气、分组层次更清晰。
+- 🗑️ **删除联系人列表副标题**：联系人/分组行不再显示副标题（`desc`），仅保留名称。
+- ⚡ **缓解启动白屏**：`index.html` 内联首屏背景色（深浅两套，随 `prefers-color-scheme` 切换）并加入轻量加载指示器，WebView 冷启动首帧即是主题背景色，不再先白一段时间才显示内容。
+
+### 变更
+- 🧩 **引入 Vuetify 官方特性实践**：
+  - `global-configuration`：在 `createVuetify` 中集中配置 `display`（移动端断点 `md` 与自定义 `thresholds`）与 `locale`（`zhHans` + `en` 兜底），替代零散写法。
+  - `theme`：巩固以 `theme.change()` 驱动的双主题（`telegramDark` / `telegramLight`），并补齐主题热切换路径的兼容处理。
+  - `treeshaking`：确认由 `vite-plugin-vuetify`（`autoImport`）按需引入组件与样式，仅打包实际用到的组件。
+- 🔍 **复核 polyfills / PostCSS 覆盖面**：确认 `browserslist` 为 `chrome >= 61, safari >= 12, firefox >= 60, edge >= 79` 的**通用范围**（向下覆盖 Android WebView ≥ 61，含 ≥ 90，向上覆盖到最新版），并非只针对个别版本；构建期 CSS 降级（`postcss-preset-env` stage 2 + 动态视口单位回退 + `color-mix` 回退）全局生效，运行时兼容层按特性检测，现代浏览器走原生路径、零行为变化。
+- 🔖 版本号提升至 `0.4.19`。
+
 ## v0.4.18
 
 ### 修复

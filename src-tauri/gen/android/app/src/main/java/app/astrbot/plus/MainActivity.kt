@@ -7,6 +7,8 @@ import android.view.View
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import android.content.res.Configuration
 
 class MainActivity : TauriActivity() {
   // Last system-bar / cutout insets seen, kept so we can re-deliver them to the
@@ -17,6 +19,8 @@ class MainActivity : TauriActivity() {
   private var insetRight = 0
   // Height of the on-screen keyboard (IME), in CSS px. 0 when it is hidden.
   private var keyboardHeight = 0
+  // Whether the JS↔native bridge has been attached to the WebView.
+  private var bridgeAdded = false
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
@@ -74,6 +78,35 @@ class MainActivity : TauriActivity() {
       window.isStatusBarContrastEnforced = false
       window.isNavigationBarContrastEnforced = false
     }
+    // Seed the bar-icon colour from the current system setting; the web layer
+    // refines it through the bridge as soon as it knows the user's chosen theme.
+    val nightMask = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+    applyBarAppearance(nightMask != Configuration.UI_MODE_NIGHT_YES)
+  }
+
+  /**
+   * Toggle the status/navigation bar icon colour.
+   *
+   * `light = true` paints DARK icons (for a light background) and `false` paints
+   * LIGHT icons (for a dark background). Because the app draws edge-to-edge with
+   * transparent bars, the platform default (light icons) becomes invisible on the
+   * light Telegram surface — the reported「状态栏不显示」symptom. Keeping the icons
+   * in sync with the theme makes them legible in both palettes.
+   */
+  private fun applyBarAppearance(light: Boolean) {
+    runOnUiThread {
+      val controller = WindowInsetsControllerCompat(window, window.decorView)
+      controller.isAppearanceLightStatusBars = light
+      controller.isAppearanceLightNavigationBars = light
+    }
+  }
+
+  /** Bridge exposed to the WebView as `window.AstrbotNative`. */
+  private inner class NativeBridge {
+    @android.webkit.JavascriptInterface
+    fun setStatusBarAppearance(light: Boolean) {
+      applyBarAppearance(light)
+    }
   }
 
   /** Store insets (converted from physical px to CSS px) and push them to the WebView. */
@@ -97,6 +130,10 @@ class MainActivity : TauriActivity() {
 
   private fun deliverInsets() {
     val web = findWebView() ?: return
+    if (!bridgeAdded) {
+      web.addJavascriptInterface(NativeBridge(), "AstrbotNative")
+      bridgeAdded = true
+    }
     val js = "window.__astrbotApplyInsets&&window.__astrbotApplyInsets($insetTop,$insetBottom,$insetLeft,$insetRight,$keyboardHeight);"
     web.post { web.evaluateJavascript(js, null) }
   }

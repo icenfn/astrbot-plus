@@ -8,9 +8,59 @@
       content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <title>AstrBot+</title>
+    <!--
+      Paint the app surface colour BEFORE the stylesheet/JS bundle loads.
+      Without this the WebView shows the default white canvas for a beat on cold
+      start (the reported「启动白屏」), which is jarring against the dark app.
+      The colours mirror the telegramDark / telegramLight themes and are refined
+      by prefers-color-scheme so the very first frame already matches the scheme.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #0d1526;
+      }
+      @media (prefers-color-scheme: light) {
+        html,
+        body {
+          background-color: #eef3fb;
+        }
+      }
+      /* Lightweight splash shown inside #app until Vue mounts and replaces it. */
+      #app {
+        min-height: 100vh;
+      }
+      .app-splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: inherit;
+      }
+      .app-splash__dot {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        border: 3px solid rgba(79, 143, 240, 0.25);
+        border-top-color: #4f8ff0;
+        animation: app-splash-spin 0.8s linear infinite;
+      }
+      @keyframes app-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="app-splash">
+        <div class="app-splash__dot"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
