@@ -56,7 +56,7 @@ function goBack(): void {
   flex: 0 0 auto;
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.08);
-  padding-top: env(safe-area-inset-top, 0px);
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
 }
 .back-title {
   font-size: 18px;

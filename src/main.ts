@@ -29,6 +29,23 @@ window.addEventListener(
   { passive: false },
 );
 
+// --- Native safe-area bridge ---------------------------------------------
+// The Android shell (MainActivity) draws edge-to-edge and forwards the single
+// set of system-bar / cutout insets here as CSS variables, so app chrome pads
+// for them exactly once. The CSS falls back to env() on other platforms.
+declare global {
+  interface Window {
+    __astrbotApplyInsets?: (top: number, bottom: number, left: number, right: number) => void;
+  }
+}
+window.__astrbotApplyInsets = (top, bottom, left, right) => {
+  const s = document.documentElement.style;
+  s.setProperty("--safe-area-inset-top", `${top}px`);
+  s.setProperty("--safe-area-inset-bottom", `${bottom}px`);
+  s.setProperty("--safe-area-inset-left", `${left}px`);
+  s.setProperty("--safe-area-inset-right", `${right}px`);
+};
+
 const app = createApp(App);
 
 app.use(createPinia());

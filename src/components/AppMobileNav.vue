@@ -68,7 +68,7 @@ const unreadLabel = computed(() => (totalUnread.value > 99 ? "99+" : String(tota
   justify-content: space-around;
   background: rgb(var(--v-theme-surface));
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
 }
 .tab {
   flex: 1 1 0;
