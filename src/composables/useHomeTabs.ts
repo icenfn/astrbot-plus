@@ -47,8 +47,6 @@ export const homeTabs: HomeTabDef[] = [
 
 // Module-scoped so every consumer observes the same selection.
 const activeHomeTab = ref<HomeTabName>("chats");
-// Whether the contacts-page search field/overlay is open (toggled from the app bar).
-const searchOpen = ref(false);
 
 export function useHomeTabs() {
   const activeTab = computed(
@@ -56,7 +54,6 @@ export function useHomeTabs() {
   );
   function selectTab(name: HomeTabName): void {
     activeHomeTab.value = name;
-    if (name !== "contacts") searchOpen.value = false;
   }
-  return { activeHomeTab, activeTab, homeTabs, selectTab, searchOpen };
+  return { activeHomeTab, activeTab, homeTabs, selectTab };
 }

@@ -1,15 +1,23 @@
 <script setup lang="ts">
 import { computed } from "vue";
+import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useSettingsStore, type ThemeMode } from "@/stores/settings";
-import { useChatStore } from "@/stores/chat";
 import { usePlatform } from "@/composables/usePlatform";
 import { useWindow } from "@/composables/useWindow";
 
+/**
+ * SettingsView — the 设置 page.
+ *
+ * Settings are rendered as plain text/divider/list sections (no cards): each row
+ * is a `v-list-item` with its title/subtitle on the left and its control
+ * (`v-switch` / `v-select`) on the right. The 连接 section no longer carries a
+ * manual connect button — configuring/reconfiguring the endpoint goes through the
+ * standalone 向导 page via 「重新配置」.
+ */
+const router = useRouter();
 const settings = useSettingsStore();
-const chat = useChatStore();
-const { connected, connecting, lastError, connectionState, socketMode } =
-  storeToRefs(settings);
+const { connected, connectionState, socketMode } = storeToRefs(settings);
 const { isTauri } = usePlatform();
 const { setAutoStart } = useWindow();
 
@@ -58,12 +66,13 @@ const modeLabel = computed(() =>
       : "socket.io · —",
 );
 
-async function onConnect() {
-  const ok = await settings.connect();
-  if (ok) await chat.loadContacts();
+const serverAddress = computed(() => settings.settings.socketUrl.trim() || "未配置");
+
+function openWizard(): void {
+  void router.push("/wizard");
 }
 
-async function onAutoStart(value: boolean) {
+async function onAutoStart(value: boolean): Promise<void> {
   settings.settings.autoStart = value;
   if (canAutoStart.value) await setAutoStart(value);
 }
@@ -72,143 +81,152 @@ async function onAutoStart(value: boolean) {
 <template>
   <div class="settings-page">
     <div class="inner">
-      <!-- 连接：仅包含编辑框、连接按钮、连接状态 v-chip（显示 socket.io 连接模式） -->
-      <v-card class="card" variant="flat">
-        <v-card-title class="card-title">
-          <v-icon icon="mdi-lan-connect" size="18" class="mr-2" />连接
-        </v-card-title>
-        <v-card-text>
-          <v-text-field
-            v-model="settings.settings.socketUrl"
-            label="插件服务器地址"
-            placeholder="例如 192.168.1.10:6199 或 ws://192.168.1.10:6199"
-            density="compact"
-            variant="solo-filled"
-            hide-details="auto"
-            class="mb-3"
-          />
-          <div class="row">
-            <v-btn color="primary" :loading="connecting" @click="onConnect">
-              连接
-            </v-btn>
-            <v-chip :color="statusColor" size="small" variant="tonal">
-              {{ statusText }} · {{ modeLabel }}
-            </v-chip>
-          </div>
-          <v-alert
-            v-if="lastError"
-            type="error"
-            variant="tonal"
-            density="compact"
-            class="mt-3"
-            :text="lastError"
-          />
-        </v-card-text>
-      </v-card>
+      <!-- 连接 -->
+      <section class="section">
+        <div class="section-title">连接</div>
+        <v-list class="rows" density="comfortable">
+          <v-list-item :subtitle="serverAddress" title="插件服务器地址">
+            <template #append>
+              <v-btn
+                color="primary"
+                variant="text"
+                size="small"
+                @click="openWizard"
+              >
+                重新配置
+              </v-btn>
+            </template>
+          </v-list-item>
+          <v-list-item title="连接状态">
+            <template #append>
+              <v-chip :color="statusColor" size="small" variant="tonal">
+                {{ statusText }} · {{ modeLabel }}
+              </v-chip>
+            </template>
+          </v-list-item>
+        </v-list>
+      </section>
 
       <!-- 外观 -->
-      <v-card class="card" variant="flat">
-        <v-card-title class="card-title">
-          <v-icon icon="mdi-palette-outline" size="18" class="mr-2" />外观
-        </v-card-title>
-        <v-card-text>
-          <div class="theme-label mb-2">主题</div>
-          <v-btn-toggle
-            v-model="settings.settings.theme"
-            mandatory
-            divided
-            variant="outlined"
-            color="primary"
-            class="theme-toggle"
-          >
-            <v-btn
-              v-for="t in themes"
-              :key="t.value"
-              :value="t.value"
-              size="small"
-              class="theme-btn"
-            >
-              <v-icon :icon="t.icon" size="16" class="mr-1" />
-              {{ t.title }}
-            </v-btn>
-          </v-btn-toggle>
-        </v-card-text>
-      </v-card>
+      <section class="section">
+        <div class="section-title">外观</div>
+        <v-list class="rows" density="comfortable">
+          <v-list-item title="主题">
+            <template #append>
+              <v-select
+                v-model="settings.settings.theme"
+                :items="themes"
+                item-title="title"
+                item-value="value"
+                density="compact"
+                variant="solo-filled"
+                flat
+                hide-details
+                class="row-select"
+              />
+            </template>
+          </v-list-item>
+        </v-list>
+      </section>
 
       <!-- 通知 -->
-      <v-card class="card" variant="flat">
-        <v-card-title class="card-title">
-          <v-icon icon="mdi-bell-outline" size="18" class="mr-2" />通知
-        </v-card-title>
-        <v-card-text>
-          <v-switch
-            v-model="settings.settings.notifyEnabled"
-            label="启用消息通知"
-            color="primary"
-            density="compact"
-            hide-details
-          />
-          <v-switch
-            v-model="settings.settings.notifyOnlyBackground"
-            label="仅在窗口不在前台时通知"
-            color="primary"
-            density="compact"
-            hide-details
+      <section class="section">
+        <div class="section-title">通知</div>
+        <v-list class="rows" density="comfortable">
+          <v-list-item
+            title="启用消息通知"
+            subtitle="收到新消息时推送系统通知"
+          >
+            <template #append>
+              <v-switch
+                v-model="settings.settings.notifyEnabled"
+                color="primary"
+                density="compact"
+                hide-details
+                class="row-switch"
+              />
+            </template>
+          </v-list-item>
+          <v-list-item
+            title="仅后台提醒"
+            subtitle="仅在窗口不在前台时通知"
             :disabled="!settings.settings.notifyEnabled"
-          />
-        </v-card-text>
-      </v-card>
+          >
+            <template #append>
+              <v-switch
+                v-model="settings.settings.notifyOnlyBackground"
+                color="primary"
+                density="compact"
+                hide-details
+                class="row-switch"
+                :disabled="!settings.settings.notifyEnabled"
+              />
+            </template>
+          </v-list-item>
+        </v-list>
+      </section>
 
-      <!-- 后台运行（移动端）：申请系统后台运行权限 -->
-      <v-card class="card" variant="flat">
-        <v-card-title class="card-title">
-          <v-icon icon="mdi-cellphone-arrow-down" size="18" class="mr-2" />后台运行
-        </v-card-title>
-        <v-card-text>
-          <v-switch
-            v-model="settings.settings.backgroundRun"
-            label="允许后台运行（保持连接并接收消息）"
-            color="primary"
-            density="compact"
-            hide-details
-          />
-          <div class="text-caption text-medium-emphasis mt-2">
-            开启后将向系统申请后台运行 / 忽略电池优化权限，以在后台持续保持 Socket.io 连接与断线重连。
-          </div>
-        </v-card-text>
-      </v-card>
+      <!-- 后台运行（移动端） -->
+      <section class="section">
+        <div class="section-title">后台运行</div>
+        <v-list class="rows" density="comfortable">
+          <v-list-item
+            title="允许后台运行"
+            subtitle="保持连接并接收消息（将申请忽略电池优化权限）"
+          >
+            <template #append>
+              <v-switch
+                v-model="settings.settings.backgroundRun"
+                color="primary"
+                density="compact"
+                hide-details
+                class="row-switch"
+              />
+            </template>
+          </v-list-item>
+        </v-list>
+      </section>
 
       <!-- 启动与窗口（桌面端） -->
-      <v-card v-if="isTauri" class="card" variant="flat">
-        <v-card-title class="card-title">
-          <v-icon icon="mdi-window-restore" size="18" class="mr-2" />启动与窗口
-        </v-card-title>
-        <v-card-text>
-          <v-switch
-            :model-value="settings.settings.autoStart"
-            label="开机自启动"
-            color="primary"
-            density="compact"
-            hide-details
-            @update:model-value="onAutoStart($event as boolean)"
-          />
-          <v-switch
-            v-model="settings.settings.minimizeToTray"
-            label="最小化到托盘"
-            color="primary"
-            density="compact"
-            hide-details
-          />
-          <v-switch
-            v-model="settings.settings.closeToTray"
-            label="关闭时最小化到托盘"
-            color="primary"
-            density="compact"
-            hide-details
-          />
-        </v-card-text>
-      </v-card>
-
+      <section v-if="isTauri" class="section">
+        <div class="section-title">启动与窗口</div>
+        <v-list class="rows" density="comfortable">
+          <v-list-item title="开机自启动">
+            <template #append>
+              <v-switch
+                :model-value="settings.settings.autoStart"
+                color="primary"
+                density="compact"
+                hide-details
+                class="row-switch"
+                @update:model-value="onAutoStart($event as boolean)"
+              />
+            </template>
+          </v-list-item>
+          <v-list-item title="最小化到托盘">
+            <template #append>
+              <v-switch
+                v-model="settings.settings.minimizeToTray"
+                color="primary"
+                density="compact"
+                hide-details
+                class="row-switch"
+              />
+            </template>
+          </v-list-item>
+          <v-list-item title="关闭时最小化到托盘">
+            <template #append>
+              <v-switch
+                v-model="settings.settings.closeToTray"
+                color="primary"
+                density="compact"
+                hide-details
+                class="row-switch"
+              />
+            </template>
+          </v-list-item>
+        </v-list>
+      </section>
     </div>
   </div>
 </template>
@@ -217,29 +235,46 @@ async function onAutoStart(value: boolean) {
 .settings-page {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 20px;
+  padding: 8px 0 20px;
 }
 .inner {
   max-width: 640px;
   margin: 0 auto;
+  padding: 0 16px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
 }
-.card {
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
-  background: rgb(var(--v-theme-surface));
+.section {
+  margin-top: 16px;
 }
-.card-title {
-  font-size: 15px;
+.section-title {
+  font-size: 13px;
   font-weight: 600;
-  display: flex;
-  align-items: center;
+  letter-spacing: 0.02em;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  padding: 4px 4px 8px;
+  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }
-.row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+.rows {
+  background: transparent;
+  padding: 0;
+}
+.rows :deep(.v-list-item) {
+  padding-inline: 4px;
+}
+.rows :deep(.v-list-item + .v-list-item) {
+  border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
+}
+.row-switch {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.row-select {
+  flex: 0 0 auto;
+  width: 148px;
+  margin: 0;
+}
+.row-select :deep(.v-field) {
+  border-radius: 8px;
 }
 </style>

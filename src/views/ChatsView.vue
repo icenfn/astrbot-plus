@@ -1,30 +1,30 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
 import { usePlatform } from "@/composables/usePlatform";
 import ChatList from "@/components/ChatList.vue";
 import ChatWindow from "@/components/ChatWindow.vue";
-import ConnectionDialog from "@/components/ConnectionDialog.vue";
 
 /**
  * ChatsView — the 消息 tab home (route `/`).
  *
  * Mobile shows only the Agent list; opening a conversation navigates to
- * `/chat/:id`, which is rendered by `MessageLayout` full-screen. Desktop keeps
- * the two-pane workspace: the list plus an (initially empty) conversation pane
- * that fills in once an Agent is selected.
+ * `/chat/:id`, rendered full-screen by `MessageLayout`. Desktop keeps the two-pane
+ * workspace: the list plus an (initially empty) conversation pane.
+ *
+ * Until the plugin connection is up the pane shows a centred ring progress
+ * indicator; the previous 「欢迎使用默认页面」 placeholder and its inline
+ * connection dialog were removed — first-run configuration now lives in the
+ * standalone 向导 page.
  */
 const settings = useSettingsStore();
 const { connected } = storeToRefs(settings);
 const { isMobile } = usePlatform();
-
-const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
 </script>
 
 <template>
   <div class="chats-view">
-    <template v-if="!needsSetup">
+    <template v-if="connected">
       <!-- Mobile: list only. -->
       <ChatList v-if="isMobile" class="pane-full" />
 
@@ -35,15 +35,8 @@ const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
       </template>
     </template>
 
-    <div v-else class="welcome">
-      <div class="welcome-inner">
-        <img src="/logo.svg" alt="AstrBot+" width="96" height="96" />
-        <h1 class="text-h5 mt-4">欢迎使用 AstrBot+</h1>
-        <p class="text-medium-emphasis mt-2 text-center">
-          连接到 AstrBot+ 配套插件，即可与 WebUI「创建机器人」里创建的 Agent 对话。
-        </p>
-        <ConnectionDialog class="mt-4" />
-      </div>
+    <div v-else class="loading">
+      <v-progress-circular indeterminate color="primary" size="48" width="4" />
     </div>
   </div>
 </template>
@@ -71,15 +64,9 @@ const needsSetup = computed(() => !settings.hasCredentials || !connected.value);
   min-width: 0;
   width: 100%;
 }
-.welcome {
+.loading {
   flex: 1;
   display: grid;
   place-items: center;
-}
-.welcome-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  max-width: 440px;
 }
 </style>

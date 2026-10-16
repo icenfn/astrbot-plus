@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from "vue-router";
+import { useSettingsStore } from "@/stores/settings";
 
 /**
  * Routing is organised around three PAGE FRAMES (vue-router layout routes),
@@ -11,6 +12,8 @@ import { createRouter, createWebHashHistory } from "vue-router";
  *                     flicker, and gives the three panes one shared background.
  *   • MessageLayout — the 消息页面 frame for a single open conversation.
  *   • BackLayout    — the generic 带返回按钮 frame for secondary pages.
+ *
+ * The 向导 page (`/wizard`) is a standalone full-screen frame of its own.
  *
  * Every frame renders the chrome it needs and delegates its content to a
  * nested `<router-view/>`, so pages stay free of shell concerns.
@@ -28,6 +31,14 @@ const router = createRouter({
       name: "chats",
       component: () => import("@/layouts/HomeLayout.vue"),
       meta: { title: "消息" },
+    },
+    {
+      // 配置向导 — standalone full-screen page. Entered automatically while no
+      // plugin address is configured, and re-entered from 设置 → 连接 →「重新配置」.
+      path: "/wizard",
+      name: "wizard",
+      component: () => import("@/views/WizardView.vue"),
+      meta: { title: "配置 AstrBot+" },
     },
     {
       // 消息页面框架 — one open conversation. Routing the open Agent (instead of
@@ -85,6 +96,19 @@ const router = createRouter({
     },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
+});
+
+/**
+ * First-run gate: without a configured plugin address the app has nothing to do,
+ * so every navigation is redirected into the 向导 page. The guard never redirects
+ * AWAY from the wizard, so 「重新配置」 (which is reachable while configured) is
+ * always allowed.
+ */
+router.beforeEach((to) => {
+  if (to.name === "wizard") return true;
+  const settings = useSettingsStore();
+  if (!settings.hasCredentials) return { name: "wizard" };
+  return true;
 });
 
 export default router;
