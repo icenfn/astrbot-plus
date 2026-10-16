@@ -9,11 +9,14 @@ import { useWindow } from "@/composables/useWindow";
 /**
  * SettingsView — the 设置 page.
  *
- * Settings are rendered as plain text/divider/list sections (no cards): each row
- * is a `v-list-item` with its title/subtitle on the left and its control
- * (`v-switch` / `v-select`) on the right. The 连接 section no longer carries a
- * manual connect button — configuring/reconfiguring the endpoint goes through the
- * standalone 向导 page via 「重新配置」.
+ * Settings are rendered as grouped text/divider/list sections (no cards): each row
+ * is a `v-list-item` whose title/subtitle sit on the left and whose control
+ * (`v-switch` / `v-select`) sits on the right. Every row carries a subtitle so the
+ * effect of each option is clear. The 连接 section has no manual connect button —
+ * configuring/reconfiguring the endpoint goes through the standalone 向导 page.
+ *
+ * The pane owns its scroll (native scrollbar hidden) so it matches the rest of the
+ * app's borderless surfaces.
  */
 const router = useRouter();
 const settings = useSettingsStore();
@@ -21,16 +24,28 @@ const { connected, connectionState, socketMode } = storeToRefs(settings);
 const { isTauri } = usePlatform();
 const { setAutoStart } = useWindow();
 
-const themes: { title: string; value: ThemeMode; icon: string }[] = [
-  { title: "跟随系统", value: "system", icon: "mdi-theme-light-dark" },
-  { title: "深色", value: "telegramDark", icon: "mdi-weather-night" },
-  { title: "浅色", value: "telegramLight", icon: "mdi-white-balance-sunny" },
+const themes: { title: string; value: ThemeMode }[] = [
+  { title: "跟随系统", value: "system" },
+  { title: "深色", value: "telegramDark" },
+  { title: "浅色", value: "telegramLight" },
 ];
+
+// 通知方式 — HOW/WHEN to be reminded. Mapped onto the single boolean
+// `notifyOnlyBackground` so the stored schema is unchanged.
+const notifyModes: { title: string; value: "always" | "background" }[] = [
+  { title: "始终提醒", value: "always" },
+  { title: "仅后台时提醒", value: "background" },
+];
+
+const notifyMode = computed({
+  get: () => (settings.settings.notifyOnlyBackground ? "background" : "always"),
+  set: (value) => {
+    settings.settings.notifyOnlyBackground = value === "background";
+  },
+});
 
 const canAutoStart = computed(() => isTauri);
 
-// Connection status chip: state + the active Socket.io transport (websocket /
-// long-polling), so the user can see how the connection is carrying traffic.
 const statusColor = computed(() => {
   switch (connectionState.value) {
     case "connected":
@@ -60,10 +75,10 @@ const statusText = computed(() => {
 
 const modeLabel = computed(() =>
   socketMode.value === "websocket"
-    ? "socket.io · websocket"
+    ? "websocket"
     : socketMode.value === "polling"
-      ? "socket.io · polling"
-      : "socket.io · —",
+      ? "polling"
+      : "—",
 );
 
 const serverAddress = computed(() => settings.settings.socketUrl.trim() || "未配置");
@@ -83,21 +98,25 @@ async function onAutoStart(value: boolean): Promise<void> {
     <div class="inner">
       <!-- 连接 -->
       <section class="section">
-        <div class="section-title">连接</div>
+        <h2 class="section-title">连接</h2>
         <v-list class="rows" density="comfortable">
-          <v-list-item :subtitle="serverAddress" title="插件服务器地址">
+          <v-list-item
+            title="插件服务器地址"
+            :subtitle="serverAddress"
+          >
             <template #append>
               <v-btn
                 color="primary"
                 variant="text"
                 size="small"
+                class="row-btn"
                 @click="openWizard"
               >
                 重新配置
               </v-btn>
             </template>
           </v-list-item>
-          <v-list-item title="连接状态">
+          <v-list-item title="连接状态" subtitle="与插件服务器的实时连接">
             <template #append>
               <v-chip :color="statusColor" size="small" variant="tonal">
                 {{ statusText }} · {{ modeLabel }}
@@ -109,9 +128,9 @@ async function onAutoStart(value: boolean): Promise<void> {
 
       <!-- 外观 -->
       <section class="section">
-        <div class="section-title">外观</div>
+        <h2 class="section-title">外观</h2>
         <v-list class="rows" density="comfortable">
-          <v-list-item title="主题">
+          <v-list-item title="主题" subtitle="选择应用的显示外观；「跟随系统」随时间自动切换">
             <template #append>
               <v-select
                 v-model="settings.settings.theme"
@@ -131,11 +150,11 @@ async function onAutoStart(value: boolean): Promise<void> {
 
       <!-- 通知 -->
       <section class="section">
-        <div class="section-title">通知</div>
+        <h2 class="section-title">通知</h2>
         <v-list class="rows" density="comfortable">
           <v-list-item
-            title="启用消息通知"
-            subtitle="收到新消息时推送系统通知"
+            title="消息通知"
+            subtitle="收到 Agent 的新消息时推送系统通知"
           >
             <template #append>
               <v-switch
@@ -148,17 +167,21 @@ async function onAutoStart(value: boolean): Promise<void> {
             </template>
           </v-list-item>
           <v-list-item
-            title="仅后台提醒"
-            subtitle="仅在窗口不在前台时通知"
+            title="通知方式"
+            subtitle="选择提醒时机：始终提醒，或仅当 App 在后台时提醒"
             :disabled="!settings.settings.notifyEnabled"
           >
             <template #append>
-              <v-switch
-                v-model="settings.settings.notifyOnlyBackground"
-                color="primary"
+              <v-select
+                v-model="notifyMode"
+                :items="notifyModes"
+                item-title="title"
+                item-value="value"
                 density="compact"
+                variant="solo-filled"
+                flat
                 hide-details
-                class="row-switch"
+                class="row-select"
                 :disabled="!settings.settings.notifyEnabled"
               />
             </template>
@@ -166,13 +189,13 @@ async function onAutoStart(value: boolean): Promise<void> {
         </v-list>
       </section>
 
-      <!-- 后台运行（移动端） -->
+      <!-- 后台运行 -->
       <section class="section">
-        <div class="section-title">后台运行</div>
+        <h2 class="section-title">后台运行</h2>
         <v-list class="rows" density="comfortable">
           <v-list-item
             title="允许后台运行"
-            subtitle="保持连接并接收消息（将申请忽略电池优化权限）"
+            subtitle="App 退到后台时保持连接并接收消息（需要通知与电池优化权限）"
           >
             <template #append>
               <v-switch
@@ -189,9 +212,9 @@ async function onAutoStart(value: boolean): Promise<void> {
 
       <!-- 启动与窗口（桌面端） -->
       <section v-if="isTauri" class="section">
-        <div class="section-title">启动与窗口</div>
+        <h2 class="section-title">启动与窗口</h2>
         <v-list class="rows" density="comfortable">
-          <v-list-item title="开机自启动">
+          <v-list-item title="开机自启动" subtitle="登录系统后自动启动 AstrBot+">
             <template #append>
               <v-switch
                 :model-value="settings.settings.autoStart"
@@ -203,7 +226,7 @@ async function onAutoStart(value: boolean): Promise<void> {
               />
             </template>
           </v-list-item>
-          <v-list-item title="最小化到托盘">
+          <v-list-item title="最小化到托盘" subtitle="点击最小化时隐藏到系统托盘而非任务栏">
             <template #append>
               <v-switch
                 v-model="settings.settings.minimizeToTray"
@@ -214,7 +237,7 @@ async function onAutoStart(value: boolean): Promise<void> {
               />
             </template>
           </v-list-item>
-          <v-list-item title="关闭时最小化到托盘">
+          <v-list-item title="关闭时最小化到托盘" subtitle="关闭窗口时保持后台运行，而不是退出应用">
             <template #append>
               <v-switch
                 v-model="settings.settings.closeToTray"
@@ -234,8 +257,18 @@ async function onAutoStart(value: boolean): Promise<void> {
 <style scoped>
 .settings-page {
   flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  padding: 8px 0 20px;
+  padding: 4px 0 24px;
+  background: rgb(var(--v-theme-surface));
+  /* Native scrollbar hidden — the pane scrolls without showing a track. */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.settings-page::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .inner {
   max-width: 640px;
@@ -245,15 +278,15 @@ async function onAutoStart(value: boolean): Promise<void> {
   flex-direction: column;
 }
 .section {
-  margin-top: 16px;
+  margin-top: 20px;
 }
 .section-title {
+  margin: 0;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-  padding: 4px 4px 8px;
-  border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  color: rgb(var(--v-theme-primary));
+  padding: 0 4px 8px;
 }
 .rows {
   background: transparent;
@@ -261,6 +294,12 @@ async function onAutoStart(value: boolean): Promise<void> {
 }
 .rows :deep(.v-list-item) {
   padding-inline: 4px;
+  min-height: 56px;
+}
+.rows :deep(.v-list-item-subtitle) {
+  white-space: normal;
+  line-height: 1.35;
+  opacity: 0.7;
 }
 .rows :deep(.v-list-item + .v-list-item) {
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.08);
@@ -271,10 +310,13 @@ async function onAutoStart(value: boolean): Promise<void> {
 }
 .row-select {
   flex: 0 0 auto;
-  width: 148px;
+  width: 152px;
   margin: 0;
 }
 .row-select :deep(.v-field) {
-  border-radius: 8px;
+  border-radius: 10px;
+}
+.row-btn {
+  flex: 0 0 auto;
 }
 </style>

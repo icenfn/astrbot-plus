@@ -1,21 +1,40 @@
 /**
- * Background-running helper (mobile).
+ * Background-running + notification-permission helpers (mobile).
  *
- * On Android we ask the native layer to move the app into a foreground service
- * with a persistent notification, which is what actually keeps the Socket.io
- * connection (and its auto-reconnect loop) alive when the app is backgrounded or
- * the screen is off. We also nudge the user to exempt the app from battery
- * optimisation, since Doze can otherwise suspend the network.
+ * On Android the native shell exposes a `window.AstrbotNative` bridge. We use it to
+ * ask for the POST_NOTIFICATIONS permission and to be exempted from battery
+ * optimisation, and we ask the Rust side to move the app into a foreground service
+ * with a persistent notification — which is what actually keeps the Socket.io
+ * connection (and its auto-reconnect loop) alive when the app is backgrounded or the
+ * screen is off.
  *
- * Everything is a no-op on desktop / browser preview where the concept does not
- * apply.
+ * IMPORTANT: nothing here runs on app launch. Both permissions are requested only
+ * AFTER the user opts in (设置 → 后台运行 / 通知, or the 向导 final step), so a cold
+ * start never raises a system prompt.
+ *
+ * Everything is a no-op on desktop / browser preview where the concept does not apply.
  */
 import { isTauri } from "@/api/env";
 
+interface AstrbotNative {
+  requestBackgroundPermissions?: () => void;
+  requestNotificationPermission?: () => void;
+}
+
+function native(): AstrbotNative | undefined {
+  return (window as unknown as { AstrbotNative?: AstrbotNative }).AstrbotNative;
+}
+
 let requested = false;
 
+/**
+ * Ask the OS to keep the app alive in the background. Also (re)raises the
+ * notification + battery-optimisation permission prompts, because this is only
+ * ever called from an explicit user opt-in.
+ */
 export async function requestBackgroundRun(): Promise<boolean> {
   if (!isTauri()) return false;
+  native()?.requestBackgroundPermissions?.();
   if (requested) return true;
   requested = true;
   try {
@@ -38,4 +57,13 @@ export async function stopBackgroundRun(): Promise<void> {
   } finally {
     requested = false;
   }
+}
+
+/**
+ * Ask the OS (Android 13+) for the POST_NOTIFICATIONS runtime permission. Called
+ * on demand when the user turns notifications on, never on launch.
+ */
+export function requestNotificationPermission(): void {
+  if (!isTauri()) return;
+  native()?.requestNotificationPermission?.();
 }

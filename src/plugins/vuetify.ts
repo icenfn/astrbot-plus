@@ -13,7 +13,7 @@ import { aliases, mdi } from "vuetify/iconsets/mdi";
 const telegramDark: ThemeDefinition = {
   dark: true,
   colors: {
-    background: "#0d1526", // app background (deep navy)
+    background: "#151f33", // app background — unified with surface (majority page colour)
     surface: "#151f33", // panels, headers, sidebar
     "surface-bright": "#1a2740", // hover / raised
     "surface-light": "#1d2a45", // incoming bubble
@@ -50,7 +50,7 @@ const telegramDark: ThemeDefinition = {
 const telegramLight: ThemeDefinition = {
   dark: false,
   colors: {
-    background: "#eef3fb", // app background (soft blue-grey)
+    background: "#ffffff", // app background — unified with surface (majority page colour)
     surface: "#ffffff", // panels, headers, sidebar
     "surface-bright": "#ffffff",
     "surface-light": "#eef2f9", // incoming bubble

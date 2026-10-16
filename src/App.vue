@@ -9,7 +9,10 @@ import { useChatStore } from "@/stores/chat";
 import { useVisualViewport } from "@/composables/useVisualViewport";
 import { useWindow } from "@/composables/useWindow";
 import { useHomeTabs } from "@/composables/useHomeTabs";
-import { requestBackgroundRun } from "@/composables/useBackground";
+import {
+  requestBackgroundRun,
+  requestNotificationPermission,
+} from "@/composables/useBackground";
 
 /**
  * App shell — global, frame-less concerns only.
@@ -108,24 +111,35 @@ function onAndroidBack(): void {
 useEventListener(window, "android:back", onAndroidBack);
 
 // Once connected, bind the real-time message feed so the list updates live even
-// while another tab is open, and request background-running permission on
-// Android so the socket stays alive when the app is not in the foreground.
+// while another tab is open. Background-running / notification permissions are
+// requested ON DEMAND (see the watchers below), never automatically on launch —
+// the user must opt in, so a cold start never raises the system prompt.
 watch(
   connected,
   (ok) => {
     if (ok) {
       chat.bindFeed();
       void chat.loadContacts();
-      if (settings.settings.backgroundRun) void requestBackgroundRun();
     }
   },
   { immediate: true },
 );
 
+// Background running: request the OS permission only when the user turns the
+// option ON (the default is ON, so a value change here means a deliberate tap).
 watch(
   () => settings.settings.backgroundRun,
   (on) => {
     if (on && connected.value) void requestBackgroundRun();
+  },
+);
+
+// Notifications: request POST_NOTIFICATIONS (Android) only when the user turns
+// notifications ON, so the prompt never appears on a cold start.
+watch(
+  () => settings.settings.notifyEnabled,
+  (on) => {
+    if (on) void requestNotificationPermission();
   },
 );
 
@@ -173,6 +187,6 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: rgb(var(--v-theme-background));
+  background: rgb(var(--v-theme-surface));
 }
 </style>

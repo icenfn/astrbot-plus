@@ -58,7 +58,10 @@ class MainActivity : TauriActivity() {
       decor.postDelayed({ deliverInsets() }, delay)
     }
 
-    requestBackgroundPermissions()
+    // NOTE: notification / battery-optimisation permissions are deliberately NOT
+    // requested here. Asking on launch is intrusive; the web layer calls the
+    // `requestBackgroundPermissions` / `requestNotificationPermission` bridge
+    // methods only after the user opts in (设置 or 向导 → 后台运行 / 通知).
   }
 
   override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -117,6 +120,25 @@ class MainActivity : TauriActivity() {
     fun moveToBackground() {
       runOnUiThread { moveTaskToBack(true) }
     }
+
+    /**
+     * Request background-running permissions (POST_NOTIFICATIONS + exemption from
+     * battery optimisation). Invoked by the web layer only after the user opts in
+     * to 后台运行, so nothing is prompted on a cold start.
+     */
+    @android.webkit.JavascriptInterface
+    fun requestBackgroundPermissions() {
+      runOnUiThread {
+        promptNotificationPermission()
+        promptIgnoreBatteryOptimizations()
+      }
+    }
+
+    /** Request only the POST_NOTIFICATIONS permission (when notifications are on). */
+    @android.webkit.JavascriptInterface
+    fun requestNotificationPermission() {
+      runOnUiThread { promptNotificationPermission() }
+    }
   }
 
   /** Store insets (converted from physical px to CSS px) and push them to the WebView. */
@@ -168,11 +190,21 @@ class MainActivity : TauriActivity() {
     notifyWebviewBack()
   }
 
-  private fun requestBackgroundPermissions() {
+  /** Ask for the POST_NOTIFICATIONS runtime permission (Android 13+). */
+  private fun promptNotificationPermission() {
     try {
       if (Build.VERSION.SDK_INT >= 33) {
         requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
       }
+    } catch (_: Exception) {}
+  }
+
+  /**
+   * Ask the user to exempt the app from battery optimisation, so Doze does not
+   * suspend the Socket.io connection while the app is backgrounded.
+   */
+  private fun promptIgnoreBatteryOptimizations() {
+    try {
       val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
       if (!pm.isIgnoringBatteryOptimizations(packageName)) {
         val intent = android.content.Intent(
