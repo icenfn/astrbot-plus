@@ -16,6 +16,7 @@
 
 ### 修复
 - 🔌 **移除未使用的 `@tauri-apps/plugin-http`**：前端全程走 Socket.io（原生 XHR），该 Tauri 插件从未被调用，已从依赖、Cargo 与能力清单中删除，减少二进制体积与攻击面。
+- 📌 **保留 `@vue/devtools-api` 为显式依赖**：它是 `pinia@4` 的 peerDependency 且被其发行版直接 `import`，属构建/运行期硬依赖；此前按「冗余包」移除会导致 CI 全新安装后 `vite build` 报 `Rollup failed to resolve import "@vue/devtools-api"`，现已恢复声明。真正移除的冗余包为未使用的 `alova`。
 
 ### 说明
 - 🔖 版本号提升至 `0.4.25`（`package.json` / `Cargo.toml` / `tauri.conf.json` 同步），配套插件 `0.4.9`。
