@@ -21,8 +21,10 @@ fn show_main(app: &tauri::AppHandle) {
 pub fn run() {
     // Plugins that work on every platform (desktop + mobile).
     let mut builder = tauri::Builder::default()
-        // HTTP plugin lets the webview reach the user's AstrBot server without CORS.
-        .plugin(tauri_plugin_http::init())
+        // NOTE: no HTTP plugin here. The frontend talks to the user's AstrBot server
+        // exclusively over Socket.io (native XHR / WebSocket), so `tauri-plugin-http`
+        // was never called. It has been removed from Cargo.toml and the capability
+        // manifests to keep the binary smaller and the attack surface narrower.
         // System notifications (desktop notification center / Android notifications).
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
