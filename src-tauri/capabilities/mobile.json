@@ -2,16 +2,17 @@
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
   "description": "Mobile (Android / iOS) capabilities for the AstrBot+ webview",
-  "platforms": ["android", "iOS"],
-  "windows": ["main"],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
     "opener:default",
     "notification:default",
-    "sql:default",
-    {
-      "identifier": "http:default",
-      "allow": [{ "url": "http://*:*" }, { "url": "https://*:*" }]
-    }
+    "sql:default"
   ]
 }

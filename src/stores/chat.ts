@@ -21,6 +21,9 @@ import {
   loadCachedMessages,
   cacheSession,
   loadCachedSessions,
+  deleteCachedConversation,
+  cachePinned,
+  loadCachedPinned,
 } from "@/api/cache";
 import { useSettingsStore } from "./settings";
 
@@ -42,13 +45,36 @@ export const useChatStore = defineStore("chat", () => {
   const threads = ref<Record<string, ChatMessage[]>>({});
   const sessions = ref<Record<string, string>>({});
   const unread = ref<Record<string, number>>({});
+  /** Pinned conversation flags (微信式置顶, local-only UI state). */
+  const pinned = ref<Record<string, boolean>>({});
   const activeKey = ref<string>("");
   const loadingContacts = ref(false);
   const contactsError = ref("");
   const sending = ref(false);
 
+  // Agents whose history has already been fully pulled from the server this
+  // session. History is fetched ONCE per agent and afterwards served from the
+  // local SQLite cache — the server no longer needs to resend it.
+  const historySynced = new Set<string>();
+
   let feedBound = false;
   let focusBound = false;
+
+  /**
+   * The conversation list, 微信-style: every row is a SESSION ordered by pinned
+   * first, then most recent activity. This is deliberately NOT the raw bot
+   * directory order — the directory only seeds the list.
+   */
+  const conversationRows = computed<AgentRow[]>(() => {
+    const rows = agents.value.slice();
+    rows.sort((a, b) => {
+      const pa = pinned.value[a.id] ? 1 : 0;
+      const pb = pinned.value[b.id] ? 1 : 0;
+      if (pa !== pb) return pb - pa;
+      return b.updatedAt - a.updatedAt;
+    });
+    return rows;
+  });
 
   const activeAgent = computed(
     () => agents.value.find((a) => a.id === activeKey.value) ?? null,
@@ -77,6 +103,50 @@ export const useChatStore = defineStore("chat", () => {
   function markUnread(id: string): void {
     if (!id) return;
     unread.value = { ...unread.value, [id]: (unread.value[id] ?? 0) + 1 };
+  }
+
+  function isPinned(id: string): boolean {
+    return !!pinned.value[id];
+  }
+
+  /** Toggle 置顶 for a conversation and persist the flag locally. */
+  function togglePinned(id: string): void {
+    if (!id) return;
+    pinned.value = { ...pinned.value, [id]: !pinned.value[id] };
+    void cachePinned(pinned.value);
+  }
+
+  /**
+   * Delete a conversation: the local SQLite cache, the in-memory thread, the
+   * session mapping and — when connected — the plugin's server-side history.
+   * Returns true when the local part succeeded (server failure is non-fatal:
+   * the row still disappears from this client).
+   */
+  async function deleteConversation(id: string): Promise<boolean> {
+    if (!id) return false;
+    const settings = useSettingsStore();
+    const sessionId = sessions.value[id] || `plus_${id}`;
+    try {
+      await deleteCachedConversation(id);
+    } catch {
+      /* best-effort */
+    }
+    delete threads.value[id];
+    delete sessions.value[id];
+    delete unread.value[id];
+    delete pinned.value[id];
+    historySynced.delete(id);
+    agents.value = agents.value.filter((a) => a.id !== id);
+    if (activeKey.value === id) activeKey.value = "";
+    void cachePinned(pinned.value);
+    if (settings.connected) {
+      try {
+        await settings.getSocket().deleteSession(sessionId, id);
+      } catch {
+        /* offline / older plugin: local delete already applied */
+      }
+    }
+    return true;
   }
 
   function ensureThread(id: string): ChatMessage[] {
@@ -198,6 +268,19 @@ export const useChatStore = defineStore("chat", () => {
     });
     // 插件（视图）侧启用/停用/删除机器人后主动广播，客户端据此实时刷新列表。
     settings.getSocket().on("bots:changed", () => { void loadContacts(); });
+    // 其他客户端删除了某个会话：同步移除本地行，避免残留。
+    settings.getSocket().on("chat:deleted", (raw) => {
+      const d = raw as { sessionId?: string; botId?: string };
+      const id = d?.botId || botIdFromSession(d?.sessionId);
+      if (!id) return;
+      agents.value = agents.value.filter((a) => a.id !== id);
+      delete threads.value[id];
+      delete sessions.value[id];
+      delete unread.value[id];
+      delete pinned.value[id];
+      if (activeKey.value === id) activeKey.value = "";
+      void deleteCachedConversation(id);
+    });
     if (!focusBound) {
       focusBound = true;
       // 回到客户端窗口 / 标签页恢复可见时同步一次，覆盖后台期间发生的变化。
@@ -235,14 +318,13 @@ export const useChatStore = defineStore("chat", () => {
     if (Object.keys(cached).length) {
       sessions.value = { ...cached, ...sessions.value };
     }
+    const cachedPins = await loadCachedPinned();
+    if (Object.keys(cachedPins).length) {
+      pinned.value = { ...cachedPins, ...pinned.value };
+    }
   }
 
   /** Sync a session's message history from the server + local cache. */
-  // Agents whose history has already been fully pulled from the server this
-  // session. History is fetched ONCE per agent and afterwards served from the
-  // local SQLite cache — the server no longer needs to resend it.
-  const historySynced = new Set<string>();
-
   /**
    * Load a conversation's messages.
    *
@@ -461,6 +543,10 @@ export const useChatStore = defineStore("chat", () => {
     activeThread,
     totalUnread,
     unreadOf,
+    isPinned,
+    togglePinned,
+    deleteConversation,
+    conversationRows,
     markRead,
     markUnread,
     receiveMessage,

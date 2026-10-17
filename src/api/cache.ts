@@ -34,6 +34,12 @@ async function open(): Promise<Database | null> {
         session_id TEXT NOT NULL
       )`,
     );
+    await db.execute(
+      `CREATE TABLE IF NOT EXISTS pins (
+        agent_id TEXT PRIMARY KEY,
+        pinned INTEGER NOT NULL DEFAULT 0
+      )`,
+    );
     return db;
   } catch (e) {
     console.warn("[cache] sqlite unavailable:", e);
@@ -94,6 +100,51 @@ export async function cacheSession(agentId: string, sessionId: string): Promise<
     );
   } catch (e) {
     console.warn("[cache] session write failed:", e);
+  }
+}
+
+/** Delete one conversation's cached messages + its session mapping. */
+export async function deleteCachedConversation(agentId: string): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute("DELETE FROM messages WHERE agent_id = $1", [agentId]);
+    await db.execute("DELETE FROM sessions WHERE agent_id = $1", [agentId]);
+    await db.execute("DELETE FROM pins WHERE agent_id = $1", [agentId]);
+  } catch (e) {
+    console.warn("[cache] delete failed:", e);
+  }
+}
+
+/** Persist the pinned-conversation flags (local-only UI state). */
+export async function cachePinned(pinned: Record<string, boolean>): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  try {
+    await db.execute("DELETE FROM pins");
+    for (const [agentId, on] of Object.entries(pinned)) {
+      if (!on) continue;
+      await db.execute(
+        "INSERT INTO pins (agent_id, pinned) VALUES ($1, 1)",
+        [agentId],
+      );
+    }
+  } catch (e) {
+    console.warn("[cache] pin write failed:", e);
+  }
+}
+
+/** Load the pinned-conversation flags. */
+export async function loadCachedPinned(): Promise<Record<string, boolean>> {
+  const db = await getDb();
+  if (!db) return {};
+  try {
+    const rows = await db.select<{ agent_id: string }[]>("SELECT agent_id FROM pins");
+    const out: Record<string, boolean> = {};
+    for (const r of rows) out[r.agent_id] = true;
+    return out;
+  } catch {
+    return {};
   }
 }
 

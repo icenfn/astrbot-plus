@@ -1,5 +1,7 @@
 import "vuetify/styles";
-import "@mdi/font/css/materialdesignicons.css";
+// woff2-only MDI icon font (see src/styles/mdi.css) — trims ~3.2 MB of
+// eot/ttf/woff variants that WebView 91+ never downloads.
+import "@/styles/mdi.css";
 
 import { createVuetify, type ThemeDefinition } from "vuetify";
 import { aliases, mdi } from "vuetify/iconsets/mdi";
@@ -94,10 +96,26 @@ export default createVuetify({
     sets: { mdi },
   },
   defaults: {
-    VBtn: { rounded: "lg" },
-    // Switches must follow the theme accent colour; without an explicit colour
-    // Vuetify falls back to a neutral surface tone, which looked "off-theme".
-    VSwitch: { color: "primary", density: "compact", hideDetails: "auto" },
+    /**
+     * Theme-colour defaults (the "chip / switch / button ignore the accent colour" bug).
+     *
+     * Root cause: these components had NO `color`, so Vuetify fell back to neutral
+     * surface/on-surface tones. It was NOT the PostCSS/legacy pipeline — that layer
+     * only down-levels modern CSS so Vuetify 4 still renders on Android WebView ≥90,
+     * and it is kept intact. Setting the accent explicitly here (single source of
+     * truth) is what makes every instance follow the theme, without repeating
+     * color="primary" in dozens of call sites.
+     */
+    VBtn: { rounded: "lg", color: "primary" },
+    VSwitch: {
+      color: "primary",
+      density: "compact",
+      hideDetails: "auto",
+      // Pill-style switch (Material 3): track hugs the thumb instead of the old
+      // squared-off look, on every switch in the app.
+      inset: true,
+    },
+    VChip: { color: "primary" },
     VTextField: { variant: "solo-filled", density: "comfortable", hideDetails: "auto" },
     VSelect: { variant: "solo-filled", density: "comfortable", hideDetails: "auto" },
     VCard: { rounded: "xl" },

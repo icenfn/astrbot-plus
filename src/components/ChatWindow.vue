@@ -22,100 +22,14 @@ const scrollEl = ref<HTMLElement | null>(null);
 /** Whether the view is (still) scrolled to the bottom of the thread. */
 const pinned = ref(true);
 
+function onScroll() {
+  onMessagesScroll();
+}
+
 function onMessagesScroll() {
   const el = scrollEl.value;
   if (!el) return;
   pinned.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-}
-
-// ---------------------------------------------------------------------------
-// Floating, auto-hiding scrollbar
-// The message list is a plain scroll container (not a Vuetify scroll component),
-// so its native scrollbar would (a) reserve layout width and (b) stay visible.
-// We therefore hide the native bar and paint our own thumb that floats over the
-// content (never occupying space), appears while scrolling, and fades out after a
-// short idle delay. It is also draggable.
-// ---------------------------------------------------------------------------
-const barVisible = ref(false);
-const barScrollable = ref(false);
-const thumbTop = ref(0);
-const thumbHeight = ref(0);
-let barHideTimer: number | undefined;
-let dragging = false;
-let dragStartY = 0;
-let dragStartTop = 0;
-
-function computeBar() {
-  const el = scrollEl.value;
-  if (!el) return;
-  const { clientHeight, scrollHeight, scrollTop } = el;
-  barScrollable.value = scrollHeight - clientHeight > 1;
-  if (!barScrollable.value) {
-    barVisible.value = false;
-    return;
-  }
-  const th = Math.max(32, (clientHeight / scrollHeight) * clientHeight);
-  thumbHeight.value = th;
-  const maxScroll = scrollHeight - clientHeight;
-  const maxThumb = clientHeight - th;
-  thumbTop.value = maxScroll > 0 ? (scrollTop / maxScroll) * maxThumb : 0;
-}
-
-function revealBar() {
-  const el = scrollEl.value;
-  if (!el) return;
-  computeBar();
-  if (!barScrollable.value) return;
-  barVisible.value = true;
-  window.clearTimeout(barHideTimer);
-  barHideTimer = window.setTimeout(() => {
-    if (!dragging) barVisible.value = false;
-  }, 900);
-}
-
-function onScroll() {
-  onMessagesScroll();
-  revealBar();
-}
-
-function onBarDown(e: PointerEvent) {
-  const el = scrollEl.value;
-  if (!el) return;
-  dragging = true;
-  window.clearTimeout(barHideTimer);
-  computeBar();
-  barVisible.value = true;
-  dragStartY = e.clientY;
-  dragStartTop = thumbTop.value;
-  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  e.preventDefault();
-}
-
-function onBarMove(e: PointerEvent) {
-  if (!dragging) return;
-  const el = scrollEl.value;
-  if (!el) return;
-  const maxScroll = el.scrollHeight - el.clientHeight;
-  const maxThumb = el.clientHeight - thumbHeight.value;
-  if (maxThumb <= 0) return;
-  let next = dragStartTop + (e.clientY - dragStartY);
-  next = Math.max(0, Math.min(maxThumb, next));
-  thumbTop.value = next;
-  el.scrollTop = (next / maxThumb) * maxScroll;
-}
-
-function onBarUp(e: PointerEvent) {
-  if (!dragging) return;
-  dragging = false;
-  try {
-    (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-  } catch {
-    /* pointer capture may already be released */
-  }
-  window.clearTimeout(barHideTimer);
-  barHideTimer = window.setTimeout(() => {
-    if (!dragging) barVisible.value = false;
-  }, 900);
 }
 
 /**
@@ -134,7 +48,6 @@ async function scrollToBottom(force = false) {
   });
   window.setTimeout(jumpToEnd, 80);
   window.setTimeout(jumpToEnd, 240);
-  window.setTimeout(computeBar, 260);
 }
 
 function jumpToEnd() {
@@ -192,10 +105,8 @@ async function onSend(text: string) {
 
 function onViewportResize() {
   if (pinned.value) void scrollToBottom(true);
-  else computeBar();
 }
 onMounted(() => {
-  computeBar();
   void scrollToBottom(true);
 });
 // 视口变化时保持滚动到底部（@vueuse/core 自动解绑）。
@@ -247,23 +158,6 @@ useEventListener(window, "astrbot:viewport", onViewportResize);
             :key="i"
             :message="m"
             :self="m.role === 'user'"
-          />
-        </div>
-
-        <!-- Floating, auto-hiding scrollbar (does not occupy layout space). -->
-        <div
-          v-show="barScrollable"
-          class="scrollbar"
-          :class="{ 'is-visible': barVisible }"
-          aria-hidden="true"
-        >
-          <div
-            class="scrollbar-thumb"
-            :style="{ height: `${thumbHeight}px`, transform: `translateY(${thumbTop}px)` }"
-            @pointerdown="onBarDown"
-            @pointermove="onBarMove"
-            @pointerup="onBarUp"
-            @pointercancel="onBarUp"
           />
         </div>
 
@@ -353,7 +247,7 @@ useEventListener(window, "astrbot:viewport", onViewportResize);
   gap: 2px;
   scroll-padding-bottom: 12px;
   overscroll-behavior: contain;
-  /* Hide the native scrollbar; a floating custom thumb is drawn instead. */
+  /* No scrollbar anywhere in the conversation view. */
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -362,35 +256,8 @@ useEventListener(window, "astrbot:viewport", onViewportResize);
   width: 0;
   height: 0;
 }
-/* Floating scrollbar overlay — absolutely positioned, never takes layout space. */
-.scrollbar {
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  right: 3px;
-  width: 8px;
-  z-index: 4;
-  opacity: 0;
-  transition: opacity 0.25s ease;
-  pointer-events: none;
-}
-.scrollbar.is-visible {
-  opacity: 1;
-}
-.scrollbar-thumb {
-  width: 6px;
-  margin-left: 1px;
-  border-radius: 999px;
-  background: rgba(var(--v-theme-on-surface), 0.32);
-  pointer-events: auto;
-  touch-action: none;
-  will-change: transform;
-  cursor: default;
-}
-.scrollbar-thumb:hover,
-.scrollbar-thumb:active {
-  background: rgba(var(--v-theme-on-surface), 0.5);
-}
+/* The message list never shows a scrollbar: the view stays clean edge-to-edge,
+   and messages auto-pin to the newest entry instead. */
 .hint {
   margin: auto;
   display: flex;

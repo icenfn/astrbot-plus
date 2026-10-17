@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useEventListener } from "@vueuse/core";
 import { usePlatform } from "@/composables/usePlatform";
 
 /**
  * MessageComposer — the conversation input bar.
  *
- * • Multi-line: a growing textarea (Shift+Enter / Enter inserts a newline), capped
- *   at a modest height so the bar stays slim.
- * • Full-page editing: the "expand" button opens a full-screen sheet with the same
- *   text, useful for long prompts on a phone.
- * • Send behaviour: on DESKTOP Enter sends (Shift+Enter newlines); on MOBILE only the
- *   explicit send button sends, so the on-screen keyboard's Enter just adds a line.
+ * • WHITE field on both themes, sitting on a tinted bar so it reads as an input.
+ * • Auto-growing single→multi line. The textarea height is computed per line so a
+ *   ONE-line message can never show a scrollbar (the old fixed max-height left a
+ *   scrollbar on a single line); scrolling only kicks in past MAX_LINES.
+ * • Once the draft exceeds TWO lines, a floating "expand" button fades in at the
+ *   input's top-right corner and opens a full-screen editor.
+ * • Desktop: Enter sends, Shift+Enter newlines. Mobile: only the send button sends.
  */
 const props = defineProps<{ busy?: boolean }>();
 const emit = defineEmits<{ (e: "send", text: string): void }>();
@@ -24,25 +25,35 @@ const sheetEl = ref<HTMLTextAreaElement | null>(null);
 const focused = ref(false);
 const expanded = ref(false);
 
-/** Auto-grow the inline textarea, capped so the bar never dominates the screen. */
-function resize() {
+// Keep these in sync with the .input CSS below.
+const LINE_HEIGHT = 22;
+const PAD_Y = 16;
+const MAX_LINES = 5;
+
+const lineCount = ref(1);
+/** Only show the expand affordance once the draft no longer fits in two lines. */
+const canExpand = computed(() => lineCount.value > 2);
+
+function measure(): void {
   const t = el.value;
   if (!t) return;
+  // Collapse first so scrollHeight reflects the real content height.
   t.style.height = "auto";
-  const max = Math.max(64, Math.min(window.innerHeight * 0.24, 120));
-  t.style.height = `${Math.min(t.scrollHeight, max)}px`;
+  const content = Math.max(0, t.scrollHeight - PAD_Y);
+  const lines = Math.max(1, Math.round(content / LINE_HEIGHT) || 1);
+  lineCount.value = lines;
+  const shown = Math.min(lines, MAX_LINES);
+  t.style.height = `${shown * LINE_HEIGHT + PAD_Y}px`;
+  // No scrollbar unless we actually overflow the capped height.
+  t.style.overflowY = lines > MAX_LINES ? "auto" : "hidden";
 }
 
-watch(text, () => nextTick(resize));
+watch(text, () => nextTick(measure));
 
-/**
- * Reflow guard for the on-screen keyboard — the shell is pinned to the visual
- * viewport, so this only re-asserts the layout after the keyboard animates in.
- */
 function reflow() {
   const t = el.value;
   if (!t || !focused.value) return;
-  resize();
+  measure();
   t.scrollIntoView({ block: "nearest" });
 }
 
@@ -83,12 +94,11 @@ function submit() {
   emit("send", value);
   text.value = "";
   expanded.value = false;
-  nextTick(resize);
+  nextTick(measure);
 }
 
 function onKeydown(e: KeyboardEvent) {
-  // Desktop only: Enter sends, Shift+Enter newlines. On mobile the Enter key must
-  // simply insert a line — sending is left to the explicit button.
+  // Desktop only: Enter sends. On mobile Enter must just insert a line.
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing && !isMobile.value) {
     e.preventDefault();
     submit();
@@ -103,7 +113,7 @@ function openSheet() {
 
 <template>
   <footer class="composer">
-    <div class="box">
+    <div class="box" :class="{ 'has-expand': canExpand }">
       <textarea
         ref="el"
         v-model="text"
@@ -120,15 +130,19 @@ function openSheet() {
         @keydown="onKeydown"
       ></textarea>
 
-      <v-btn
-        icon="mdi-arrow-expand"
-        variant="text"
-        size="small"
-        class="expand-btn"
-        title="整页编辑"
-        :ripple="false"
-        @click="openSheet"
-      />
+      <!-- Floating above the input's top-right corner, only past two lines. -->
+      <transition name="pop">
+        <v-btn
+          v-if="canExpand"
+          icon="mdi-arrow-expand"
+          variant="flat"
+          size="x-small"
+          class="expand-btn"
+          title="整页编辑"
+          :ripple="false"
+          @click="openSheet"
+        />
+      </transition>
 
       <v-btn
         icon="mdi-send"
@@ -178,17 +192,24 @@ function openSheet() {
 <style scoped>
 .composer {
   flex: 0 0 auto;
-  padding: 6px 12px calc(8px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
+  padding: 6px 10px calc(8px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   background: rgb(var(--v-theme-surface));
   border-top: 1px solid rgba(var(--v-theme-on-surface), 0.1);
 }
 .box {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  background: rgb(var(--v-theme-surface-variant));
+  /* White input field on a tinted track, in both themes. */
+  background: #ffffff;
   border-radius: 20px;
-  padding: 3px 4px 3px 14px;
+  padding: 2px 4px 2px 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+/* Room for the floating expand button so it never covers the first line. */
+.box.has-expand .input {
+  padding-right: 26px;
 }
 .input {
   flex: 1 1 auto;
@@ -196,21 +217,37 @@ function openSheet() {
   outline: none;
   resize: none;
   background: transparent;
-  color: rgb(var(--v-theme-on-surface));
-  font-size: 15px; /* >=16px would prevent zoom; 15px keeps the bar slim */
-  line-height: 1.45;
-  max-height: 120px;
-  overflow-y: auto;
+  color: #16202b;
+  font-size: 15px;
+  line-height: 22px;
+  height: 38px;
+  overflow-y: hidden;
   padding: 8px 0;
   font-family: inherit;
 }
 .input::placeholder {
-  color: rgba(var(--v-theme-on-surface), 0.45);
+  color: rgba(22, 32, 43, 0.42);
 }
-.expand-btn,
+.expand-btn {
+  position: absolute;
+  top: 2px;
+  right: 40px;
+  z-index: 2;
+  background: rgba(22, 32, 43, 0.08);
+  box-shadow: none;
+}
 .send-btn {
   flex: 0 0 auto;
   margin-bottom: 1px;
+}
+.pop-enter-active,
+.pop-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: scale(0.8);
 }
 
 /* Full-page editor */

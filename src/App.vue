@@ -85,17 +85,28 @@ watch(activeKey, (key) => {
 
 // Android hardware back button: close an open conversation first, then leave
 // any non-tab page back to the home tab.
+function goBackInHistory(): void {
+  // `history.state.back` is set by vue-router whenever there is an in-app page to
+  // return to; fall back to the 首页 only for a direct/deep-link entry.
+  const state = window.history.state as { back?: string | null } | null;
+  if (state?.back) router.back();
+  else void router.push("/");
+}
+
 function onAndroidBack(): void {
   // 0) The 向导 page steps back through its own screens — leave the key to it.
   if (route.name === "wizard") return;
-  // 1) An open conversation → back to the 首页 frame (the chat store follows the route).
-  if (activeKey.value) {
-    void router.push("/");
+  // 1) An open conversation → back to the 首页 frame it was opened from.
+  if (route.name === "chat") {
+    goBackInHistory();
     return;
   }
-  // 2) Any secondary page (设置 / 关于 / Agent 信息 …) → back to the 首页 frame.
+  // 2) Any secondary page (设置 / 关于 / Agent 信息 …) → return to the page it was
+  //    opened FROM. Walking real history (instead of always jumping to 首页) is what
+  //    makes 聊天 → Agent 信息 → 返回 land back on that conversation, and
+  //    设置 → 重新配置 → 返回 land back on 设置.
   if (route.name !== "chats") {
-    void router.push("/");
+    goBackInHistory();
     return;
   }
   // 3) On the 首页 frame: first return to the primary (消息) tab; if we are already

@@ -60,8 +60,16 @@ function next(): void {
 }
 
 function prev(): void {
-  if (step.value > 0) step.value -= 1;
-  else if (canGoBack.value) void router.replace("/");
+  if (step.value > 0) {
+    step.value -= 1;
+    return;
+  }
+  if (!canGoBack.value) return;
+  // Leave the wizard the way we came in: 「设置 → 重新配置」 returns to 设置, while a
+  // first-run entry (no history) still lands on the 首页.
+  const state = window.history.state as { back?: string | null } | null;
+  if (state?.back) router.back();
+  else void router.replace("/");
 }
 
 // The Android hardware back key walks the wizard one step at a time (App.vue

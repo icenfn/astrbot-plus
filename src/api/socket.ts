@@ -12,6 +12,7 @@
  *   bots:list           → { status, data: [{ id, name, nickname, ... }] }
  *   chat:history        → { sessionId, messages: [...] }   （历史消息同步）
  *   chat:send           → stream replies back via chat:* events
+ *   chat:delete         → drop a session's server-side history (long-press 删除)
  *     payload: { text, botId, sessionId } (reqId is generated client-side)
  *
  * Wire protocol (server → client):
@@ -211,6 +212,18 @@ export class PlusSocket {
   /** Fetch the plugin's server capabilities / defaults (`config` event). */
   async getConfig(): Promise<PluginConfig | null> {
     return this.request<PluginConfig>("config", {});
+  }
+
+  /**
+   * Delete a session server-side: the plugin drops its in-memory history and
+   * broadcast a `chat:deleted` event so every connected client clears the row.
+   */
+  async deleteSession(sessionId: string, botId = ""): Promise<boolean> {
+    const res = await this.request<{ deleted?: boolean }>("chat:delete", {
+      sessionId,
+      botId,
+    });
+    return !!res && res.deleted !== false;
   }
 
   /** Fetch a session's message history (client-side history sync). */

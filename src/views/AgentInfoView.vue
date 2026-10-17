@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useChatStore } from "@/stores/chat";
 import { useSettingsStore } from "@/stores/settings";
@@ -8,27 +8,33 @@ import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
 import type { PluginConfig } from "@/api/types";
 
 /**
- * AgentInfoView — the read-only「Agent 信息」page, opened from the message
- * page's application-bar info button (`/agent/:id`).
+ * AgentInfoView — the「Agent 详情」page (route `/agent/:id`).
  *
- * Shows the Agent's `bot_id` (the stable key shared with the WebUI「创建机器人」
- * page) plus the partial configuration the plugin exposes: display name, platform
- * adapter, enabled state, and the companion plugin's server capabilities
- * (`config` event: plugin name / version / port). Rendered inside `BackLayout`,
- * so it carries the standard back button.
+ * 合并后的 Agent 信息页：既可以从**联系人页**点击智能体进入，也可以从**聊天页**
+ * 右上角的信息按钮进入，因此它同时承担「联系人详情」与「Agent 配置」两个角色，
+ * 并在顶部提供 **发消息** 主操作，直达该 Agent 的会话。
+ *
+ * 展示内容：显示名、Bot ID（与 WebUI「创建机器人」共享的稳定键）、平台适配器、
+ * 启用状态，以及配套插件暴露的服务端能力（`config` 事件：插件名 / 版本 / 端口）。
+ * 由 `BackLayout` 包裹，自带返回按钮（返回来源页）。
  */
 const route = useRoute();
+const router = useRouter();
 const chat = useChatStore();
 const settings = useSettingsStore();
 const { agents } = storeToRefs(chat);
 
-const botId = computed(() => (typeof route.params.id === "string" ? route.params.id : ""));
+const botId = computed(() =>
+  typeof route.params.id === "string" ? route.params.id : "",
+);
 
 // Prefer the live store row (name / avatar / platform / enabled); fall back to
 // the raw id when the Agent is not in the current list (e.g. a deep link).
 const agent = computed(() => agents.value.find((a) => a.id === botId.value) ?? null);
 const displayName = computed(() => agent.value?.name || botId.value);
 const displaySeed = computed(() => agent.value?.avatarSeed || botId.value);
+const platform = computed(() => agent.value?.platform || "astrbot_plus");
+const enabled = computed(() => agent.value?.enabled !== false);
 
 const config = ref<PluginConfig | null>(null);
 const loadingConfig = ref(false);
@@ -46,6 +52,12 @@ async function loadConfig(): Promise<void> {
 }
 
 onMounted(loadConfig);
+
+/** 发消息：进入该 Agent 的会话页。 */
+function startChat(): void {
+  if (!botId.value) return;
+  void router.push(`/chat/${encodeURIComponent(botId.value)}`);
+}
 </script>
 
 <template>
@@ -55,6 +67,16 @@ onMounted(loadConfig);
         <AstrbotAvatar :name="displayName" :seed="displaySeed" :size="88" />
         <h1 class="hero-name">{{ displayName }}</h1>
         <div class="hero-sub">AstrBot Agent</div>
+        <v-btn
+          class="talk-btn"
+          color="primary"
+          variant="flat"
+          rounded="lg"
+          prepend-icon="mdi-message-text-outline"
+          @click="startChat"
+        >
+          发消息
+        </v-btn>
       </div>
 
       <v-card class="card" variant="flat" rounded="lg">
@@ -67,8 +89,18 @@ onMounted(loadConfig);
           </v-list-item>
           <v-list-item
             prepend-icon="mdi-account-outline"
-            title="昵称"
+            title="名称"
             :subtitle="displayName"
+          />
+          <v-list-item
+            prepend-icon="mdi-lan-connect"
+            title="平台适配器"
+            :subtitle="platform"
+          />
+          <v-list-item
+            prepend-icon="mdi-toggle-switch-outline"
+            title="启用状态"
+            :subtitle="enabled ? '已启用' : '已停用'"
           />
         </v-list>
       </v-card>
@@ -95,6 +127,11 @@ onMounted(loadConfig);
             title="插件版本"
             :subtitle="config?.version || '—'"
           />
+          <v-list-item
+            prepend-icon="mdi-lan"
+            title="服务端口"
+            :subtitle="config?.port ? String(config.port) : '—'"
+          />
         </v-list>
         <p v-if="!settings.connected" class="hint">
           未连接插件，服务端信息暂不可用。
@@ -110,6 +147,13 @@ onMounted(loadConfig);
   min-height: 0;
   overflow-y: auto;
   padding: 20px 16px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.agent-info::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .agent-info-inner {
   max-width: 640px;
@@ -133,6 +177,12 @@ onMounted(loadConfig);
 .hero-sub {
   font-size: 13px;
   color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.talk-btn {
+  margin-top: 12px;
+  width: 100%;
+  max-width: 260px;
+  font-weight: 600;
 }
 .card {
   border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
