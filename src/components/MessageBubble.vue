@@ -55,8 +55,9 @@ const time = computed(() => {
   /* Telegram corners: one tight corner marks the "tail" side. */
   border-radius: 14px;
   border-bottom-left-radius: 5px;
-  background: rgb(var(--v-theme-surface-light));
-  color: rgb(var(--v-theme-on-surface));
+  /* Incoming (对方) bubbles are white in both themes, per product spec. */
+  background: #ffffff;
+  color: #16202b;
   line-height: 1.5;
   font-size: 14.5px;
   word-break: break-word;

@@ -35,9 +35,9 @@ const { isMobile } = usePlatform();
       </template>
     </template>
 
-    <div v-else class="loading">
-      <v-progress-circular indeterminate color="primary" size="48" width="4" />
-    </div>
+    <!-- Nothing to render until the connection is up: the router guard sends an
+         unconfigured install to the 向导 page, and a configured one connects
+         quickly, so no progress placeholder is shown here. -->
   </div>
 </template>
 
@@ -63,10 +63,5 @@ const { isMobile } = usePlatform();
   flex: 1 1 auto;
   min-width: 0;
   width: 100%;
-}
-.loading {
-  flex: 1;
-  display: grid;
-  place-items: center;
 }
 </style>

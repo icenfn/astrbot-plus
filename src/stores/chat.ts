@@ -238,43 +238,57 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   /** Sync a session's message history from the server + local cache. */
-  async function loadHistory(id: string): Promise<void> {
+  // Agents whose history has already been fully pulled from the server this
+  // session. History is fetched ONCE per agent and afterwards served from the
+  // local SQLite cache — the server no longer needs to resend it.
+  const historySynced = new Set<string>();
+
+  /**
+   * Load a conversation's messages.
+   *
+   * Cache-first: whatever is stored locally renders immediately (offline-safe,
+   * no empty flash), then — only the FIRST time this agent is opened while
+   * connected — the server's canonical history is fetched once and merged in.
+   * Subsequent opens/refreshes never re-request history; local writes from
+   * streaming/live messages keep the cache current.
+   */
+  async function loadHistory(id: string, force = false): Promise<void> {
     if (!id) return;
     const settings = useSettingsStore();
     const sessionId = sessions.value[id] || `plus_${id}`;
 
-    let history: HistoryMessage[] = [];
-    if (settings.connected) {
-      try {
-        history = await settings.getSocket().fetchHistory(sessionId, THREAD_LIMIT);
-      } catch {
-        history = [];
+    // 1) Render the local cache immediately when the thread is empty.
+    let local = threads.value[id] ?? [];
+    if (!local.length) {
+      const cached = await loadCachedMessages(id);
+      if (cached.length) {
+        threads.value[id] = cached;
+        local = cached;
+        syncRowFromThread(id, cached);
       }
     }
 
-    const local = threads.value[id] ?? [];
-
-    // Nothing from the server and nothing in memory: fall back to the SQLite
-    // cache so a previously loaded conversation is still visible offline.
-    if (!history.length && !local.length) {
-      const cached = await loadCachedMessages(id);
-      if (cached.length) threads.value[id] = cached;
+    // 2) Pull the server history exactly once per agent (unless forced).
+    const alreadySynced = historySynced.has(id) && !force;
+    if (!settings.connected || alreadySynced) {
+      if (local.length) void cacheMessages(id, local);
       return;
     }
 
-    // Merge the server history with any locally-streamed messages it has not
-    // persisted yet, then order the whole thread chronologically.
-    //
-    // Two defects lived here before:
-    //   • the overlap was keyed by `role + text` alone, so genuinely repeated
-    //     messages (the same question asked twice) collapsed into one and the
-    //     restored thread looked shorter than it really is — the「少获取」symptom.
-    //     The key now also carries the timestamp (rounded to the second), so
-    //     distinct turns survive while the true server/local overlap is still
-    //     de-duplicated.
-    //   • leftover local messages were appended at the tail, so any message that
-    //     predated the server's newest batch rendered out of order. A stable sort
-    //     by `created_at` fixes the occasional mis-ordering.
+    let history: HistoryMessage[] = [];
+    try {
+      history = await settings.getSocket().fetchHistory(sessionId, THREAD_LIMIT);
+      historySynced.add(id);
+    } catch {
+      // Server unreachable — keep serving the cache and retry next time.
+      if (local.length) void cacheMessages(id, local);
+      return;
+    }
+
+    // 3) Merge: server rows are authoritative for their time range; local-only
+    //    rows (streamed but not yet persisted server-side) are kept. Dedupe on
+    //    role+text+second so genuinely repeated turns survive while true
+    //    overlap collapses.
     const threadKey = (role: string, text: string, iso: string): string => {
       const t = new Date(iso).getTime();
       return `${role}\u0000${text}\u0000${Number.isNaN(t) ? iso : Math.floor(t / 1000)}`;
@@ -294,22 +308,22 @@ export const useChatStore = defineStore("chat", () => {
       seen.add(key);
       merged.push(m);
     }
-    merged.sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-    );
+    merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
     if (merged.length > THREAD_LIMIT) merged.splice(0, merged.length - THREAD_LIMIT);
-    threads.value[id] = merged;
 
-    // Keep the list subtitle / ordering in sync with the loaded history so a
-    // conversation that already has messages no longer shows "开始对话".
-    const row = agents.value.find((a) => a.id === id);
-    if (row && merged.length) {
-      const last = merged[merged.length - 1];
-      row.lastMessage = last.text;
-      row.updatedAt = new Date(last.created_at).getTime();
-      row.messageCount = merged.length;
-    }
+    threads.value[id] = merged;
+    syncRowFromThread(id, merged);
     void cacheMessages(id, merged);
+  }
+
+  /** Keep the list row's subtitle / ordering in sync with a thread. */
+  function syncRowFromThread(id: string, thread: ChatMessage[]): void {
+    const row = agents.value.find((a) => a.id === id);
+    if (!row || !thread.length) return;
+    const last = thread[thread.length - 1];
+    row.lastMessage = last.text;
+    row.updatedAt = new Date(last.created_at).getTime();
+    row.messageCount = thread.length;
   }
 
   function openAgent(id: string): void {
@@ -329,6 +343,8 @@ export const useChatStore = defineStore("chat", () => {
     if (!id || !content || sending.value) return;
 
     const settings = useSettingsStore();
+    // Guard: a disconnected socket would spin the send button forever.
+    if (!settings.connected) return;
     pushMessage(id, { role: "user", text: content, created_at: new Date().toISOString() });
     const row = agents.value.find((a) => a.id === id);
     if (row) {
@@ -418,8 +434,9 @@ export const useChatStore = defineStore("chat", () => {
         };
         const timer = window.setInterval(() => {
           if (settled) finish();
-        }, 100);
-        const watchdog = window.setTimeout(finish, 120000);
+        }, 80);
+        // Hard watchdog: a dropped chat:done must never freeze the composer.
+        const watchdog = window.setTimeout(finish, 45000);
       });
     } catch (e) {
       const msg = ensureAssistant();

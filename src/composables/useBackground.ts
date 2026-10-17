@@ -19,6 +19,8 @@ import { isTauri } from "@/api/env";
 interface AstrbotNative {
   requestBackgroundPermissions?: () => void;
   requestNotificationPermission?: () => void;
+  startBackgroundService?: () => void;
+  stopBackgroundService?: () => void;
 }
 
 function native(): AstrbotNative | undefined {
@@ -35,14 +37,14 @@ let requested = false;
 export async function requestBackgroundRun(): Promise<boolean> {
   if (!isTauri()) return false;
   native()?.requestBackgroundPermissions?.();
-  if (requested) return true;
   requested = true;
+  // Android: actually start the foreground service that pins the process alive.
+  // The Rust command is a no-op there, so the JS bridge is the working path.
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("start_background_service");
+    native()?.startBackgroundService?.();
     return true;
   } catch (e) {
-    console.warn("background service request failed", e);
+    console.warn("background service start failed", e);
     return false;
   }
 }
@@ -50,8 +52,7 @@ export async function requestBackgroundRun(): Promise<boolean> {
 export async function stopBackgroundRun(): Promise<void> {
   if (!isTauri()) return;
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("stop_background_service");
+    native()?.stopBackgroundService?.();
   } catch (e) {
     console.warn("background service stop failed", e);
   } finally {

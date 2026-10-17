@@ -196,11 +196,6 @@ export class PlusSocket {
     this.setStatus("idle");
   }
 
-  async ping(): Promise<boolean> {
-    const res = await this.request<{ pong?: boolean }>("ping", {});
-    return !!res && (res.pong === true || Object.keys(res).length === 0);
-  }
-
   /** Fetch the Agent list. Returns [] when the request fails. */
   async listBots(): Promise<PluginBot[]> {
     const res = await this.request<

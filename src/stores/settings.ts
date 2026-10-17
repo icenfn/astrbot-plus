@@ -137,7 +137,8 @@ export const useSettingsStore = defineStore("settings", () => {
       socket = new PlusSocket(settings.value.socketUrl);
       bindStatus(socket);
       await socket.connect();
-      await socket.ping();
+      // A resolved connect() already proves the handshake succeeded — the old
+      // `ping` round-trip was redundant (and a second failure mode on flaky nets).
       connected.value = true;
       connectionState.value = "connected";
       return true;

@@ -139,6 +139,32 @@ class MainActivity : TauriActivity() {
     fun requestNotificationPermission() {
       runOnUiThread { promptNotificationPermission() }
     }
+
+    /**
+     * Start the foreground service that keeps the WebView socket alive while the
+     * app is backgrounded, showing a low-importance persistent notice. Called only
+     * after the user enables 后台运行.
+     */
+    @android.webkit.JavascriptInterface
+    fun startBackgroundService() {
+      runOnUiThread {
+        try {
+          BackgroundService.start(this@MainActivity)
+        } catch (_: Throwable) {
+        }
+      }
+    }
+
+    /** Stop the foreground service (user turned 后台运行 off). */
+    @android.webkit.JavascriptInterface
+    fun stopBackgroundService() {
+      runOnUiThread {
+        try {
+          BackgroundService.stop(this@MainActivity)
+        } catch (_: Throwable) {
+        }
+      }
+    }
   }
 
   /** Store insets (converted from physical px to CSS px) and push them to the WebView. */

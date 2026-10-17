@@ -95,6 +95,9 @@ export default createVuetify({
   },
   defaults: {
     VBtn: { rounded: "lg" },
+    // Switches must follow the theme accent colour; without an explicit colour
+    // Vuetify falls back to a neutral surface tone, which looked "off-theme".
+    VSwitch: { color: "primary", density: "compact", hideDetails: "auto" },
     VTextField: { variant: "solo-filled", density: "comfortable", hideDetails: "auto" },
     VSelect: { variant: "solo-filled", density: "comfortable", hideDetails: "auto" },
     VCard: { rounded: "xl" },

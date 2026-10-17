@@ -12,6 +12,7 @@ import { useHomeTabs } from "@/composables/useHomeTabs";
 import {
   requestBackgroundRun,
   requestNotificationPermission,
+  stopBackgroundRun,
 } from "@/composables/useBackground";
 
 /**
@@ -85,6 +86,8 @@ watch(activeKey, (key) => {
 // Android hardware back button: close an open conversation first, then leave
 // any non-tab page back to the home tab.
 function onAndroidBack(): void {
+  // 0) The 向导 page steps back through its own screens — leave the key to it.
+  if (route.name === "wizard") return;
   // 1) An open conversation → back to the 首页 frame (the chat store follows the route).
   if (activeKey.value) {
     void router.push("/");
@@ -130,7 +133,11 @@ watch(
 watch(
   () => settings.settings.backgroundRun,
   (on) => {
-    if (on && connected.value) void requestBackgroundRun();
+    if (on) {
+      if (connected.value) void requestBackgroundRun();
+    } else {
+      void stopBackgroundRun();
+    }
   },
 );
 

@@ -1,23 +1,17 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { storeToRefs } from "pinia";
-import { useChatStore } from "@/stores/chat";
 import { useHomeTabs } from "@/composables/useHomeTabs";
 
 /**
  * Mobile bottom tab bar.
  *
- * The three tabs (消息 / 联系人 / 我的) no longer navigate routes — they switch the
- * embedded panes inside HomeLayout via `useHomeTabs`, so the tab bar stays mounted
- * and no page reloads on switch.
+ * The three tabs (消息 / 联系人 / 我的) switch the embedded panes inside HomeLayout
+ * via `useHomeTabs`, so the bar stays mounted and nothing reloads on switch.
+ *
+ * The unread-count badge that used to sit on the 消息 tab is intentionally gone:
+ * per-item unread dots live in the message list itself, so a second aggregate
+ * counter on the tab bar was redundant noise.
  */
-const chat = useChatStore();
-const { totalUnread } = storeToRefs(chat);
 const { activeHomeTab, homeTabs, selectTab } = useHomeTabs();
-
-const unreadLabel = computed(() =>
-  totalUnread.value > 99 ? "99+" : String(totalUnread.value),
-);
 </script>
 
 <template>
@@ -32,21 +26,7 @@ const unreadLabel = computed(() =>
       :class="{ 'is-active': activeHomeTab === tab.name }"
       @click="selectTab(tab.name)"
     >
-      <v-badge
-        v-if="tab.name === 'chats'"
-        :content="unreadLabel"
-        :model-value="totalUnread > 0"
-        color="error"
-        offset-x="6"
-        offset-y="4"
-      >
-        <v-icon
-          :icon="activeHomeTab === tab.name ? tab.activeIcon : tab.icon"
-          size="24"
-        />
-      </v-badge>
       <v-icon
-        v-else
         :icon="activeHomeTab === tab.name ? tab.activeIcon : tab.icon"
         size="24"
       />

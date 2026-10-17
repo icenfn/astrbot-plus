@@ -32,6 +32,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Foreground service that keeps the WebView socket alive while backgrounded. -->
+        <service
+            android:name=".BackgroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"

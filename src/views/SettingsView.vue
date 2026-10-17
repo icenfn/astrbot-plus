@@ -34,7 +34,7 @@ const themes: { title: string; value: ThemeMode }[] = [
 // `notifyOnlyBackground` so the stored schema is unchanged.
 const notifyModes: { title: string; value: "always" | "background" }[] = [
   { title: "始终提醒", value: "always" },
-  { title: "仅后台时提醒", value: "background" },
+  { title: "仅后台", value: "background" },
 ];
 
 const notifyMode = computed({
@@ -116,7 +116,7 @@ async function onAutoStart(value: boolean): Promise<void> {
               </v-btn>
             </template>
           </v-list-item>
-          <v-list-item title="连接状态" subtitle="与插件服务器的实时连接">
+          <v-list-item title="连接状态" subtitle="与插件服务器的实时连接状态">
             <template #append>
               <v-chip :color="statusColor" size="small" variant="tonal">
                 {{ statusText }} · {{ modeLabel }}
@@ -130,7 +130,7 @@ async function onAutoStart(value: boolean): Promise<void> {
       <section class="section">
         <h2 class="section-title">外观</h2>
         <v-list class="rows" density="comfortable">
-          <v-list-item title="主题" subtitle="选择应用的显示外观；「跟随系统」随时间自动切换">
+          <v-list-item title="主题" subtitle="跟随系统会随系统的深浅色自动切换">
             <template #append>
               <v-select
                 v-model="settings.settings.theme"
@@ -168,7 +168,7 @@ async function onAutoStart(value: boolean): Promise<void> {
           </v-list-item>
           <v-list-item
             title="通知方式"
-            subtitle="选择提醒时机：始终提醒，或仅当 App 在后台时提醒"
+            subtitle="始终提醒，或仅在 App 处于后台时提醒"
             :disabled="!settings.settings.notifyEnabled"
           >
             <template #append>
@@ -273,9 +273,11 @@ async function onAutoStart(value: boolean): Promise<void> {
 .inner {
   max-width: 640px;
   margin: 0 auto;
-  padding: 0 16px;
+  /* Generous gutters + no clipping: rows/selects must never be cut off. */
+  padding: 0 18px;
   display: flex;
   flex-direction: column;
+  overflow: visible;
 }
 .section {
   margin-top: 20px;
@@ -295,6 +297,11 @@ async function onAutoStart(value: boolean): Promise<void> {
 .rows :deep(.v-list-item) {
   padding-inline: 4px;
   min-height: 56px;
+  /* Let appended controls (switch/select/chip/button) breathe inside the row. */
+  overflow: visible;
+}
+.rows :deep(.v-list-item__append) {
+  overflow: visible;
 }
 .rows :deep(.v-list-item-subtitle) {
   white-space: normal;
@@ -310,7 +317,8 @@ async function onAutoStart(value: boolean): Promise<void> {
 }
 .row-select {
   flex: 0 0 auto;
-  width: 152px;
+  width: 150px;
+  max-width: 48%;
   margin: 0;
 }
 .row-select :deep(.v-field) {

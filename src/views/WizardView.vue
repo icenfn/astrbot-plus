@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useEventListener } from "@vueuse/core";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
@@ -62,6 +63,10 @@ function prev(): void {
   if (step.value > 0) step.value -= 1;
   else if (canGoBack.value) void router.replace("/");
 }
+
+// The Android hardware back key walks the wizard one step at a time (App.vue
+// deliberately ignores it on this route so it never skips the whole wizard).
+useEventListener(window, "android:back", () => prev());
 
 async function finish(): Promise<void> {
   settings.settings.socketUrl = draftUrl.value.trim();
@@ -295,7 +300,8 @@ async function finish(): Promise<void> {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 16px 24px 24px;
+  padding: 12px 20px 20px;
+  overflow: visible;
 }
 .hero {
   width: 108px;
@@ -331,6 +337,19 @@ async function finish(): Promise<void> {
   max-width: 420px;
   margin-top: 22px;
 }
+/* Fixed height: the address field must not change height while typing / on error
+   (details area is hidden; a fixed 56px keeps the step layout rock-steady). */
+.field :deep(.v-field) {
+  height: 56px;
+}
+.field :deep(.v-field__input) {
+  padding-top: 0;
+  padding-bottom: 0;
+  min-height: 56px;
+}
+.field :deep(.v-input__details) {
+  display: none;
+}
 .rows {
   width: 100%;
   max-width: 420px;
@@ -341,6 +360,10 @@ async function finish(): Promise<void> {
 .rows :deep(.v-list-item) {
   padding-inline: 4px;
   min-height: 56px;
+  overflow: visible;
+}
+.rows :deep(.v-list-item__append) {
+  overflow: visible;
 }
 .rows :deep(.v-list-item-subtitle) {
   white-space: normal;
@@ -356,7 +379,8 @@ async function finish(): Promise<void> {
 }
 .row-select {
   flex: 0 0 auto;
-  width: 150px;
+  width: 140px;
+  max-width: 48%;
   margin: 0;
 }
 .row-select :deep(.v-field) {
