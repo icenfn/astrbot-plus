@@ -1,0 +1,178 @@
+/* AstrBot+ global styles */
+html,
+body,
+#app {
+  height: 100%;
+  /* --app-height mirrors window.visualViewport.height (set in useVisualViewport)
+     so the on-screen keyboard never covers the composer. */
+  height: var(--app-height, 100dvh);
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  /* Disable pinch-zoom; allow normal panning/scrolling. */
+  touch-action: pan-x pan-y;
+  overscroll-behavior: none;
+  font-family: "Inter", "Roboto", "PingFang SC", "Microsoft YaHei", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ---------------------------------------------------------------------------
+   Text-selection / long-press policy
+   The UI is app-like, so long-pressing chrome (bars, tab bar, list rows,
+   buttons, avatars, timestamps) must NOT raise a native text-selection handle
+   or the iOS/Android "callout" (copy/paste/share) menu. We therefore disable
+   selection + the touch callout on the whole document by default, then re-enable
+   it ONLY where reading/selecting genuinely makes sense — the message bubble
+   content, and real text controls (inputs / textareas / contenteditable).
+--------------------------------------------------------------------------- */
+html,
+body {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Message bubbles stay selectable (copy a reply, a code block, a link) — the
+   bubble body is rendered into `.md` by MessageBubble.vue. */
+.md,
+.md *,
+input,
+textarea,
+[contenteditable="true"],
+[contenteditable=""],
+.v-field__input,
+.v-text-field input,
+.v-textarea textarea {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Telegram-like scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(var(--v-theme-on-surface), 0.3);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--v-theme-on-surface), 0.5);
+}
+
+.chat-scroll {
+  scroll-behavior: smooth;
+}
+
+.no-select {
+  user-select: none;
+}
+
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* ---------------------------------------------------------------------------
+   Mobile layout helpers
+   The shell switches to a bottom tab bar below 900px (see usePlatform.ts).
+   The tab bar is rendered by <AppMobileNav> inside the flex shell and is
+   hidden while a conversation/settings page is open, so the routable views
+   (消息/联系人/我的) no longer need per-view bottom padding hacks.
+--------------------------------------------------------------------------- */
+@media (max-width: 900px) {
+  .messages {
+    padding-bottom: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   v-switch —— 真正让轨道取到主题色
+   ---------------------------------------------------------------------------
+   现象：开关打开后是「淡蓝」，和主题 primary 明显不是一个颜色。
+   根因（Vuetify 4.2.3 VSwitch.css，不是我们的配色问题）：
+     .v-switch__track { background-color: rgb(var(--v-theme-surface-variant));
+                        opacity: 0.6; }
+   轨道本身固定 0.6 透明度，选中时只叠加了一个 `.bg-primary`
+   工具类，于是 #5b9dff 被 60% 透明度「洗」成淡蓝
+   （叠加在 #151f33 上约等于 #3c6baf）。改 primary 颜色值治不了它。
+   另外 `.bg-primary` 属于 utilities，与 components 同层级时先后顺序不稳定，
+   所以这里直接给出确定的「选中即实色主色」规则，不依赖层序。
+--------------------------------------------------------------------------- */
+.v-switch .v-switch__track {
+  /* 轨道不再整体半透明：关/开两态都以实色呈现，颜色就是主题色本身。 */
+  opacity: 1;
+}
+
+.v-switch .v-selection-control--dirty .v-switch__track {
+  background-color: rgb(var(--v-theme-primary));
+}
+
+/* 滑块：蓝色轨道上用白色滑块，明暗两套主题都有足够对比。 */
+.v-switch .v-selection-control--dirty .v-switch__thumb {
+  background-color: #ffffff;
+  color: rgb(var(--v-theme-primary));
+  box-shadow: 0 1px 3px rgba(16, 24, 40, 0.28);
+}
+
+/* 关态轨道保持中性灰，但不再叠透明度，避免深浅主题下忽明忽暗。 */
+.v-switch .v-selection-control:not(.v-selection-control--dirty) .v-switch__track {
+  background-color: rgba(var(--v-theme-on-surface), 0.26);
+}
+
+.v-switch .v-selection-control--disabled .v-switch__track {
+  background-color: rgba(var(--v-theme-on-surface), 0.12);
+}
+
+/* ---------------------------------------------------------------------------
+   统一按钮体系
+   ---------------------------------------------------------------------------
+   问题：消息页（返回 / Agent 信息 / 回到底部）用裸 `variant="text"` 图标按钮，
+   Agent 信息页的「发消息」是整宽蓝色实心按钮，聊天页发送按钮又是另一个尺寸 ——
+   同一 App 里出现三种按钮形态，看起来像没做完。
+   这里给出全局基线，页面只保留业务差异（宽度、位置），不再各自定义外形。
+--------------------------------------------------------------------------- */
+
+/* 文字基线：Vuetify 默认会给按钮加 letter-spacing 与大写字形，中文下偏松。 */
+.v-btn {
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* 图标按钮统一为圆形：胶囊/方块混用是「不统一」最直观的来源。 */
+.v-btn--icon {
+  border-radius: 50%;
+}
+
+/* 裸文字图标按钮给一层极淡的底色，让它在顶栏里是一个可点的「chip」，
+   而不是飘着的一个图标；深浅主题都取 on-surface 的低透明度，不会冲突。 */
+.v-btn--icon.v-btn--variant-text {
+  background-color: rgba(var(--v-theme-on-surface), 0.07);
+}
+.v-btn--icon.v-btn--variant-text:hover {
+  background-color: rgba(var(--v-theme-on-surface), 0.13);
+}
+
+/* 主操作按钮（实心 primary 且有文字）：统一圆角与最小高度。
+   排除图标按钮，因为发送按钮等是正方形/圆形，另有尺寸规则。 */
+.v-btn.bg-primary:not(.v-btn--icon) {
+  border-radius: 12px;
+  min-height: 44px;
+  padding-inline: 22px;
+  font-weight: 600;
+}

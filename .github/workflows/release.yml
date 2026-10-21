@@ -1,0 +1,207 @@
+name: Release
+
+# 通过推送 v* 标签或手动触发运行。
+# 版本号以「标签」为准（标签推送用标签名；手动触发可用 version 输入；两者都没有才回退 CHANGELOG 顶部）。
+# 构建 Windows(nsis) 与 Android(arm64)，并把产物上传为 GitHub Release 的 Assets。
+#
+# 说明（本次修复）：此前版本号一直取自 CHANGELOG.md 的顶部标题，而该标题长期停留在
+# v0.4.13，导致标签推送 v0.4.14 / v0.4.15 时，工作流仍以 v0.4.13 作为 tag_name，
+# 把新构建的产物上传到了旧的 v0.4.13 Release，新 Release 的 Assets 因此为空。
+# 现在版本号优先取自 git 标签，避免再次发生「产物投递到错误 Release」的问题。
+#
+# Android 原生工程（src-tauri/gen/android）已作为源码提交进仓库：manifest、MainActivity、
+# 图标、ABI、cleartext 等定制都直接写在模板里，构建时无需再 `android init` + 打补丁。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "要发布的版本标签（例如 v0.4.15）。留空则取 CHANGELOG.md 顶部版本。"
+        required: false
+        default: ""
+        type: string
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      body: ${{ steps.meta.outputs.body }}
+      should_release: ${{ steps.meta.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve version + body
+        id: meta
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+
+          # 1) 版本号来源优先级：标签推送 > 手动输入 > CHANGELOG 顶部。
+          #    这样「打标签发布」永远不会因为 CHANGELOG 未及时更新而投递到错误 Release。
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="$GITHUB_REF_NAME"
+          elif [ -n "${INPUT_VERSION:-}" ]; then
+            version="$INPUT_VERSION"
+          else
+            version=$(grep -m1 '^## ' CHANGELOG.md | sed 's/^##[[:space:]]*//')
+          fi
+
+          # 规范化：统一带前导 v（例如 0.4.15 -> v0.4.15）。
+          case "$version" in
+            v*) ;;
+            "") echo "无法解析版本号" >&2; exit 1 ;;
+            *) version="v$version" ;;
+          esac
+
+          # 2) 发布说明：匹配 CHANGELOG 中该版本段落（兼容带/不带前导 v 的标题）。
+          vn="${version#v}"
+          body=$(awk -v v="$version" -v vn="$vn" '
+            ($0 == "## " v || $0 == "## " vn) {c=1; next}
+            c && /^## / {exit}
+            c
+          ' CHANGELOG.md)
+          if [ -z "$body" ]; then
+            body="本次发布 ${version}，详情见仓库 CHANGELOG.md。"
+          fi
+
+          # 标签推送或手动触发都应发布；对已存在的 Release 会补传/更新产物。
+          should=true
+
+          {
+            echo "version=$version"
+            echo "body<<EOF"
+            echo "$body"
+            echo "EOF"
+            echo "should_release=$should"
+          } >> "$GITHUB_OUTPUT"
+
+  build-windows:
+    name: Build (Windows nsis)
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Install dependencies
+        run: npm ci
+      - name: Build Windows installer (nsis)
+        run: npm run tauri build -- --bundles nsis
+      - name: Rename installer
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
+          Rename-Item $exe.FullName "AstrbotPlus-${{ needs.prepare.outputs.version }}-x64-setup.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  build-android:
+    name: Build (Android arm64)
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 9477386
+          accept-android-sdk-licenses: true
+          packages: "platform-tools platforms;android-34 build-tools;34.0.0 ndk;26.1.10909125"
+      - name: Install dependencies
+        run: npm ci
+      - name: Build APK (arm64)
+        run: npx tauri android build --apk --target aarch64
+        env:
+          NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.1.10909125
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.1.10909125
+      - name: Sign + rename APK
+        env:
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${ANDROID_KEY_BASE64:-}" ]; then
+            echo "$ANDROID_KEY_BASE64" | base64 -d > /tmp/ks.jks
+            alias="$ANDROID_KEY_ALIAS"; pass="$ANDROID_KEY_PASSWORD"
+          else
+            cp android/debug.keystore /tmp/ks.jks
+            alias="astrbotplus"; pass="android"
+          fi
+          BT="$ANDROID_SDK_ROOT/build-tools/34.0.0"
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -path "*/release/*" -name "*.apk" | head -1)
+          mkdir -p release
+          "$BT/zipalign" -f -p 4 "$APK" /tmp/aligned.apk
+          "$BT/apksigner" sign --ks /tmp/ks.jks \
+            --ks-pass pass:"$pass" --ks-key-alias "$alias" --key-pass pass:"$pass" \
+            /tmp/aligned.apk
+          cp /tmp/aligned.apk "release/AstrbotPlus-${{ needs.prepare.outputs.version }}-arm64.apk"
+          ls -la release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: release/*.apk
+          if-no-files-found: error
+
+  create-release:
+    name: Create GitHub Release
+    needs: [prepare, build-windows, build-android]
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Show downloaded artifacts
+        run: find artifacts -type f -maxdepth 3 -printf '%p (%s bytes)\n' || ls -R artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: ${{ needs.prepare.outputs.version }}
+          body: ${{ needs.prepare.outputs.body }}
+          # 逐个匹配每个子目录下的产物；避免 **/* 在个别环境下漏匹配。
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.apk
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

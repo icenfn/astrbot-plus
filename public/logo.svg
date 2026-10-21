@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="AstrBot+">
+  <title>AstrBot+</title>
+  <!-- AstrBot+ app icon — a derivative ("二创") of the AstrBot favicon sparkle,
+       set on a full-bleed gradient square with a "+" badge. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#42a9e2"/>
+      <stop offset="0.5" stop-color="#2f86bd"/>
+      <stop offset="1" stop-color="#1a5c92"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dcefff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+
+  <!-- Four-point sparkle (the AstrBot motif), centered and inside the
+       Android adaptive-icon safe zone. -->
+  <path
+    d="M256 96 C266 176 336 246 416 256 C336 266 266 336 256 416 C246 336 176 266 96 256 C176 246 246 176 256 96 Z"
+    fill="url(#mark)"/>
+
+  <!-- "+" badge -->
+  <circle cx="382" cy="382" r="70" fill="#1a5c92" opacity="0.35"/>
+  <circle cx="382" cy="382" r="62" fill="#ffffff"/>
+  <path d="M382 350v64M350 382h64" stroke="#2f86bd" stroke-width="16" stroke-linecap="round"/>
+</svg>
