@@ -1,3 +1,21 @@
+## v0.9.0
+
+### 重构
+- 🏗️ **重构为基于 alovajs + Socket.IO 的 IM 客户端**：客户端主动查询（登录、拉 Agent / 用户列表、拉历史消息）统一走 HTTP API，服务端主动推送的实时事件（消息发送、流式回复、私聊到达）走 Socket.IO；UI 风格保持不变。
+
+### 新增
+- 🔗 **快连链接向导**：新增向导第一步为快连链接 `ap://email:password@(ip||domain:port)`，本地解析出服务端地址、邮箱与密码并按与手动录入完全一致的存储方式落盘；解析并登录成功后直接跳过手动录入服务端地址与邮箱密码的步骤。
+- 👥 **联系人与用户私聊**：联系人页分为「智能体」与「好友」两个分组，好友来自 `GET /api/users`，点击即可像与 Agent 对话一样发起用户间私聊。
+- 🔐 **JWT 鉴权**：登录成功后保存服务端下发的一次性 Token，HTTP API 通过 `Authorization: Bearer` 自动注入，Socket.IO 以 `auth: { token }` 完成长连接鉴权；token 失效时统一返回并回到凭据步骤修正。
+- 🗂️ **用户与 Agent 会话隔离**：每次打开 Agent 会话使用独立会话键，不同用户的 Agent 对话互不可见；用户私聊消息由服务端落库，支持消息漫游。
+- ⏱️ **私聊实时链路**：`private:send` 发送并按 `reqId` 关联服务端回显（乐观更新），`private:message` 接收对端推送。
+
+### 修复
+- 🔢 **版本号统一为 0.9.0**：`package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 四处版本号保持一致，此前仍停留在 0.4.28。
+
+### 说明
+- 🔖 版本号提升至 `0.9.0`，配合服务端插件 [astrbot-plugin-plus](https://github.com/icenfn/astrbot-plugin-plus) `0.9.0`。
+
 ## v0.4.28
 
 ### 修复
