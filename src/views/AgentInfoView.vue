@@ -12,7 +12,7 @@ import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
  * 右上角的信息按钮进入，因此它同时承担「联系人详情」与「Agent 配置」两个角色，
  * 并在顶部提供 **发消息** 主操作，直达该 Agent 的会话。
  *
- * 只保留与用户决策相关的信息：显示名、Bot ID、名称。启用状态、平台适配器、
+ * 只保留与用户决策相关的信息：显示名、Bot ID、名称、备注（仅当管理端填写）。启用状态、平台适配器、
  * 服务端信息（插件名 / 版本 / 端口）已按要求移除 —— 它们对终端用户没有意义，
  * 且会让页面变成「调试面板」。
  */
@@ -29,6 +29,8 @@ const botId = computed(() =>
 // Agent is not in the current list (e.g. a deep link).
 const agent = computed(() => agents.value.find((a) => a.id === botId.value) ?? null);
 const displayName = computed(() => agent.value?.name || botId.value);
+/** 备注由管理端填写，仅作展示；为空时不渲染该行。 */
+const remark = computed(() => (agent.value?.remark || "").trim());
 const displaySeed = computed(() => agent.value?.avatarSeed || botId.value);
 
 /** 发消息：进入该 Agent 的会话页。 */
@@ -69,6 +71,12 @@ function startChat(): void {
             prepend-icon="mdi-account-outline"
             title="名称"
             :subtitle="displayName"
+          />
+          <v-list-item
+            v-if="remark"
+            prepend-icon="mdi-note-text-outline"
+            title="备注"
+            :subtitle="remark"
           />
         </v-list>
       </v-card>

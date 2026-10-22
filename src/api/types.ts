@@ -28,6 +28,8 @@ export interface AgentRow {
   name: string;
   /** 机器人指纹（128 位 hash），由服务端生成，用于长期识别同一机器人。 */
   botdf?: string;
+  /** 管理端填写的备注（仅展示用途），未填写时为空串。 */
+  remark?: string;
   enabled?: boolean;
   // ---- local-only UI state (filled by the chat store) --------------------
   avatarSeed?: string;

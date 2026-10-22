@@ -10,6 +10,9 @@
  *                                   Bearer              → HistoryMessageDto[]
  *   GET  /health
  *
+ * 任一受保护接口返回 401 时，会清空本地 Bearer token（保留服务器地址与账号），
+ * 使客户端回到重新登录状态。
+ *
  * baseURL is the same `host:port` entered in the wizard (normalized to an
  * http(s) URL), and the Bearer token is injected by a global request hook
  * from the settings store — method factories below stay trivial.
@@ -59,6 +62,20 @@ export const alovaInstance = createAlova({
     // the wizard can surface "邮箱或密码错误" instead of "400 Bad Request".
     onSuccess: async (response: Response) => {
       if (!response.ok) {
+        // 401 表示 Bearer token 已失效（例如服务端把 token 有效期配置为较短
+        // 天数，或已过期）。此时只清空 token、保留服务器地址与账号，让界面回到
+        // 「重新登录」状态，避免带着失效凭据反复请求；登录失败时不会走到这里，
+        // 因为那时本地还没有 token。
+        if (response.status === 401) {
+          try {
+            const settings = useSettingsStore();
+            if (settings.settings.jwtToken) {
+              settings.settings.jwtToken = "";
+            }
+          } catch {
+            /* pinia 尚未就绪时忽略，交由调用方处理错误 */
+          }
+        }
         let msg = `${response.status} ${response.statusText}`;
         try {
           const body = (await response.json()) as {
