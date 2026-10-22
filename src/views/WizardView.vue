@@ -28,7 +28,12 @@ const chat = useChatStore();
 const { connecting, lastError } = storeToRefs(settings);
 
 type Mode = "quick" | "manual";
-const mode = ref<Mode>("quick");
+/**
+ * `null` 表示「尚未选择连接方式」——先给用户一个入口层，让「快连链接」和
+ * 「手动录入」两个入口平级并列。此前默认直接进快连输入框，手动录入只是一个
+ * 不显眼的文字按钮，用户找不到手动入口。
+ */
+const mode = ref<Mode | null>(null);
 
 const quickUrl = ref("");
 const manualServer = ref(settings.settings.serverUrl);
@@ -48,16 +53,21 @@ const notifyModes: { title: string; value: "always" | "background" }[] = [
 
 const canGoBack = computed(() => settings.hasCredentials);
 
-// Steps depend on mode.
-const steps = computed(() =>
+// Steps depend on mode; 入口层（尚未选择连接方式）不显示步骤条。
+const QUICK_STEPS = ["快连", "通知与提醒", "后台运行"] as const;
+const MANUAL_STEPS = ["服务器地址", "账号登录", "通知与提醒", "后台运行"] as const;
+const steps = computed<readonly string[]>(() =>
   mode.value === "quick"
-    ? (["快连", "通知与提醒", "后台运行"] as const)
-    : (["服务器地址", "账号登录", "通知与提醒", "后台运行"] as const),
+    ? QUICK_STEPS
+    : mode.value === "manual"
+      ? MANUAL_STEPS
+      : [],
 );
 const LAST = computed(() => steps.value.length - 1);
 const step = ref(0);
 
 const canAdvance = computed(() => {
+  if (mode.value === null) return false;
   if (mode.value === "quick") {
     if (step.value === 0) return quickUrl.value.trim().length > 0;
     return true;
@@ -69,10 +79,35 @@ const canAdvance = computed(() => {
 });
 const isLast = computed(() => step.value === LAST.value);
 
+function chooseQuick(): void {
+  mode.value = "quick";
+  step.value = 0;
+  lastError.value = "";
+}
+
 function switchToManual(): void {
   mode.value = "manual";
   step.value = 0;
   lastError.value = "";
+}
+
+/** 从任一流程回到「选择连接方式」入口层。 */
+function backToMethod(): void {
+  mode.value = null;
+  step.value = 0;
+  lastError.value = "";
+}
+
+/**
+ * 归一化错误文案：网络层失败（fetch 抛 TypeError）只会给出 "Failed to fetch"，
+ * 对用户没有可操作信息，这里补上排查方向。
+ */
+function describeError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  if (/Failed to fetch|NetworkError|load failed|\bfetch\b/i.test(raw)) {
+    return `${raw}（连接失败：请确认服务器地址与端口可直连、服务已启动，且未被防火墙或跨域策略拦截）`;
+  }
+  return raw;
 }
 
 async function next(): Promise<void> {
@@ -83,7 +118,6 @@ async function next(): Promise<void> {
     const parsed = parseQuickConnect(quickUrl.value);
     if (!parsed) {
       lastError.value = "快连链接格式不正确，应为 ap://邮箱:密码@地址:端口";
-      switchToManual();
       return;
     }
     settings.settings.serverUrl = parsed.serverUrl;
@@ -91,18 +125,18 @@ async function next(): Promise<void> {
     settings.settings.password = parsed.password;
     settings.settings.jwtToken = "";
     settings.settings.currentUser = null;
+    // 解析结果同时同步到手动录入字段，用户切到手动时无需重填。
+    manualServer.value = parsed.serverUrl;
+    manualEmail.value = parsed.email;
+    manualPassword.value = parsed.password;
     try {
       await settings.doLogin(parsed.email, parsed.password);
       // Success: advance to notify step (index 1 in quick mode).
       step.value = 1;
       lastError.value = "";
     } catch (e) {
-      lastError.value = e instanceof Error ? e.message : String(e);
-      // Fall back to manual with the parsed fields pre-filled.
-      manualServer.value = parsed.serverUrl;
-      manualEmail.value = parsed.email;
-      manualPassword.value = parsed.password;
-      switchToManual();
+      // 登录失败留在当前步展示原始原因，不再强行跳走，避免用户丢失输入上下文。
+      lastError.value = describeError(e);
     }
     return;
   }
@@ -119,7 +153,7 @@ async function next(): Promise<void> {
       step.value = 2;
       lastError.value = "";
     } catch (e) {
-      lastError.value = e instanceof Error ? e.message : String(e);
+      lastError.value = describeError(e);
     }
     return;
   }
@@ -134,6 +168,11 @@ async function next(): Promise<void> {
 function prev(): void {
   if (step.value > 0) {
     step.value -= 1;
+    return;
+  }
+  // 已在某个流程的第一步：回到「选择连接方式」，而不是直接退出向导。
+  if (mode.value !== null) {
+    backToMethod();
     return;
   }
   if (!canGoBack.value) return;
@@ -193,8 +232,45 @@ async function finish(): Promise<void> {
     <div class="wizard-body">
       <transition name="step" mode="out-in">
         <div :key="mode + '-' + step" class="step-pane">
+          <!-- 入口层：先选连接方式，快连与手动录入平级 -->
+          <template v-if="mode === null">
+            <div class="hero">
+              <v-icon icon="mdi-connection" size="64" color="primary" />
+            </div>
+            <h1 class="title">选择连接方式</h1>
+            <p class="desc">粘贴管理员提供的快连链接一键登录，或手动填写服务器地址与账号。</p>
+
+            <div class="methods">
+              <button type="button" class="method" @click="chooseQuick">
+                <v-icon icon="mdi-link-variant" size="28" color="primary" />
+                <span class="method-text">
+                  <span class="method-title">快连链接</span>
+                  <span class="method-sub">粘贴 ap:// 链接，自动填写并登录</span>
+                </span>
+                <v-icon icon="mdi-chevron-right" size="22" class="method-arrow" />
+              </button>
+              <button type="button" class="method" @click="switchToManual">
+                <v-icon icon="mdi-keyboard-outline" size="28" color="primary" />
+                <span class="method-text">
+                  <span class="method-title">手动录入</span>
+                  <span class="method-sub">自己填写服务器地址、邮箱和密码</span>
+                </span>
+                <v-icon icon="mdi-chevron-right" size="22" class="method-arrow" />
+              </button>
+            </div>
+
+            <v-alert
+              v-if="lastError"
+              type="error"
+              variant="tonal"
+              density="compact"
+              class="alert"
+              :text="lastError"
+            />
+          </template>
+
           <!-- Quick-connect URL step -->
-          <template v-if="mode === 'quick' && step === 0">
+          <template v-else-if="mode === 'quick' && step === 0">
             <div class="hero">
               <v-icon icon="mdi-link-variant" size="64" color="primary" />
             </div>
@@ -388,7 +464,8 @@ async function finish(): Promise<void> {
     </div>
 
     <!-- Bottom action -->
-    <div class="wizard-foot">
+    <!-- 入口层由卡片自身完成选择，不显示底部主按钮 -->
+    <div v-if="mode !== null" class="wizard-foot">
       <v-btn
         color="primary"
         size="large"
@@ -513,6 +590,63 @@ async function finish(): Promise<void> {
 .manual-link {
   margin-top: 12px;
   opacity: 0.75;
+}
+/* 入口层：两种连接方式的并列卡片 */
+.methods {
+  width: 100%;
+  max-width: 420px;
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.method {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 14px;
+  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
+  border-radius: 16px;
+  background: rgba(var(--v-theme-on-surface), 0.04);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    transform 0.15s ease;
+}
+.method:hover,
+.method:focus-visible {
+  border-color: rgba(var(--v-theme-primary), 0.6);
+  background: rgba(var(--v-theme-primary), 0.08);
+  outline: none;
+}
+.method:active {
+  transform: scale(0.985);
+}
+.method-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.method-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgb(var(--v-theme-on-surface));
+}
+.method-sub {
+  font-size: 13px;
+  line-height: 1.4;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+.method-arrow {
+  flex: 0 0 auto;
+  opacity: 0.45;
 }
 .rows {
   width: 100%;
