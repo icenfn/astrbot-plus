@@ -10,6 +10,10 @@
 - 🗂️ **用户与 Agent 会话隔离**：每次打开 Agent 会话使用独立会话键，不同用户的 Agent 对话互不可见；用户私聊消息由服务端落库，支持消息漫游。
 - ⏱️ **私聊实时链路**：`private:send` 发送并按 `reqId` 关联服务端回显（乐观更新），`private:message` 接收对端推送。
 
+### 适配服务端插件 0.9.0
+- 🏷️ **Agent 备注字段**：`/api/agents` 与 `bots:list` 新增可选的 `remark` 字段，客户端 `AgentRow` 类型同步补充，Agent 详情页在显示名下方展示备注（无备注不占位）。
+- 🔐 **Token 失效统一回收凭据**：HTTP 层捕获 `401` 时清除本地已存 Token 并提示重新登录，避免携带失效 Token 反复请求失败；与插件新增的 `token_expire_days`（默认 30 天、`0` 为永久）配置配套生效。
+
 ### 修复
 - 🔢 **版本号统一为 0.9.0**：`package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml` 四处版本号保持一致，此前仍停留在 0.4.28。
 
