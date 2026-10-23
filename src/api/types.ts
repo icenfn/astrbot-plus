@@ -20,6 +20,10 @@ export interface UserRow {
   email?: string;
   /** Stable avatar fingerprint / hash. */
   df?: string;
+  /** 用户头像（data-URI 或 URL）；空串表示使用内置默认头像。 */
+  avatar?: string;
+  /** 用户对外 ID（类似 wxid，ap_ 前缀，唯一）。 */
+  ap_id?: string;
 }
 
 /** An Agent row from `GET /api/agents`. */
@@ -30,9 +34,10 @@ export interface AgentRow {
   botdf?: string;
   /** 管理端填写的备注（仅展示用途），未填写时为空串。 */
   remark?: string;
+  /** Agent 头像（data-URI 或 URL）；空串表示使用内置默认头像。 */
+  avatar?: string;
   enabled?: boolean;
   // ---- local-only UI state (filled by the chat store) --------------------
-  avatarSeed?: string;
   updatedAt?: number;
   lastMessage?: string;
   messageCount?: number;

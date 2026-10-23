@@ -12,9 +12,11 @@ import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
  * 右上角的信息按钮进入，因此它同时承担「联系人详情」与「Agent 配置」两个角色，
  * 并在顶部提供 **发消息** 主操作，直达该 Agent 的会话。
  *
- * 只保留与用户决策相关的信息：显示名、Bot ID、名称、备注（仅当管理端填写）。启用状态、平台适配器、
- * 服务端信息（插件名 / 版本 / 端口）已按要求移除 —— 它们对终端用户没有意义，
- * 且会让页面变成「调试面板」。
+ * 页面信息取舍：
+ *   • 头像下方显示 **Bot ID**（取代原来的「AstrBot Agent」说明文字）。
+ *   • 配置卡只保留 Bot ID、备注与 **bot 指纹**；「名称」行已删除（名字本身已在顶部
+ *     展示，重复一行没有信息价值）。
+ *   • 启用状态、平台适配器、服务端信息（插件名 / 版本 / 端口）已按要求移除。
  */
 const route = useRoute();
 const router = useRouter();
@@ -29,9 +31,11 @@ const botId = computed(() =>
 // Agent is not in the current list (e.g. a deep link).
 const agent = computed(() => agents.value.find((a) => a.id === botId.value) ?? null);
 const displayName = computed(() => agent.value?.name || botId.value);
+const avatar = computed(() => agent.value?.avatar || "");
 /** 备注由管理端填写，仅作展示；为空时不渲染该行。 */
 const remark = computed(() => (agent.value?.remark || "").trim());
-const displaySeed = computed(() => agent.value?.avatarSeed || botId.value);
+/** bot 指纹：服务端生成的 128 位 hash，用于长期识别同一机器人。 */
+const botFingerprint = computed(() => agent.value?.botdf || "");
 
 /** 发消息：进入该 Agent 的会话页。 */
 function startChat(): void {
@@ -44,9 +48,9 @@ function startChat(): void {
   <div class="agent-info">
     <div class="agent-info-inner">
       <div class="hero">
-        <AstrbotAvatar :name="displayName" :seed="displaySeed" :size="88" />
+        <AstrbotAvatar :name="displayName" :src="avatar" type="agent" :size="88" />
         <h1 class="hero-name">{{ displayName }}</h1>
-        <div class="hero-sub">AstrBot Agent</div>
+        <div class="hero-sub mono">{{ botId || "—" }}</div>
         <v-btn
           class="talk-btn"
           color="primary"
@@ -68,16 +72,16 @@ function startChat(): void {
             </template>
           </v-list-item>
           <v-list-item
-            prepend-icon="mdi-account-outline"
-            title="名称"
-            :subtitle="displayName"
-          />
-          <v-list-item
             v-if="remark"
             prepend-icon="mdi-note-text-outline"
             title="备注"
             :subtitle="remark"
           />
+          <v-list-item prepend-icon="mdi-fingerprint" title="Bot 指纹">
+            <template #subtitle>
+              <span class="mono fingerprint">{{ botFingerprint || "—" }}</span>
+            </template>
+          </v-list-item>
         </v-list>
       </v-card>
     </div>
@@ -116,10 +120,14 @@ function startChat(): void {
   font-size: 20px;
   font-weight: 700;
   margin: 4px 0 0;
+  text-align: center;
+  word-break: break-word;
 }
 .hero-sub {
   font-size: 13px;
   color: rgba(var(--v-theme-on-surface), 0.6);
+  word-break: break-all;
+  text-align: center;
 }
 .talk-btn {
   margin-top: 12px;
@@ -144,5 +152,9 @@ function startChat(): void {
 .mono {
   font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
   word-break: break-all;
+}
+.fingerprint {
+  font-size: 12px;
+  opacity: 0.85;
 }
 </style>

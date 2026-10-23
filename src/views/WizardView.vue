@@ -13,27 +13,24 @@ import {
 /**
  * WizardView — first-run configuration.
  *
- * Two entry paths, both writing the same settings shape:
+ * 「快连」与「手动录入」过去是两条各自独立的步骤串（快连：2 步；手动：4 步），
+ * 现在合并成**同一条线性步骤流**：
  *
- *   • 快连 (default): paste an `ap://email:password@host:port` URL. We parse
- *     it locally, swap the fields into settings, call `POST /api/auth/login`
- *     and — on success — jump straight to the 通知 / 后台 opt-in steps.
- *   • 手动: fill server address, then email + password, then 通知 / 后台.
+ *   1 服务器连接 → 2 账号登录 → 3 通知与提醒 → 4 后台运行
  *
- * On finish we open the authenticated Socket.io connection and replace "/" .
+ * 两种录入方式只是第 1 步的不同输入形态（快连链接 / 手动地址），快连链接解析后
+ * 会把地址与账号自动填进后续步骤，用户可直接「下一步」走完。视觉风格、组件与
+ * 样式完全沿用原页面，未做任何改版。
+ *
+ * On finish we open the authenticated Socket.io connection and replace "/".
  */
 const router = useRouter();
 const settings = useSettingsStore();
 const chat = useChatStore();
 const { connecting, lastError } = storeToRefs(settings);
 
-type Mode = "quick" | "manual";
-/**
- * `null` 表示「尚未选择连接方式」——先给用户一个入口层，让「快连链接」和
- * 「手动录入」两个入口平级并列。此前默认直接进快连输入框，手动录入只是一个
- * 不显眼的文字按钮，用户找不到手动入口。
- */
-const mode = ref<Mode | null>(null);
+/** 第 1 步的输入形态：快连链接（默认）/ 手动填写地址。 */
+const manualEntry = ref(false);
 
 const quickUrl = ref("");
 const manualServer = ref(settings.settings.serverUrl);
@@ -53,48 +50,28 @@ const notifyModes: { title: string; value: "always" | "background" }[] = [
 
 const canGoBack = computed(() => settings.hasCredentials);
 
-// Steps depend on mode; 入口层（尚未选择连接方式）不显示步骤条。
-const QUICK_STEPS = ["快连", "通知与提醒", "后台运行"] as const;
-const MANUAL_STEPS = ["服务器地址", "账号登录", "通知与提醒", "后台运行"] as const;
-const steps = computed<readonly string[]>(() =>
-  mode.value === "quick"
-    ? QUICK_STEPS
-    : mode.value === "manual"
-      ? MANUAL_STEPS
-      : [],
-);
-const LAST = computed(() => steps.value.length - 1);
+/** 合并后的唯一步骤串（两种录入方式共用）。 */
+const STEPS = ["服务器连接", "账号登录", "通知与提醒", "后台运行"] as const;
+const steps = computed<readonly string[]>(() => STEPS);
+const LAST = STEPS.length - 1;
 const step = ref(0);
 
 const canAdvance = computed(() => {
-  if (mode.value === null) return false;
-  if (mode.value === "quick") {
-    if (step.value === 0) return quickUrl.value.trim().length > 0;
-    return true;
+  if (step.value === 0) {
+    return manualEntry.value
+      ? manualServer.value.trim().length > 0
+      : quickUrl.value.trim().length > 0;
   }
-  if (step.value === 0) return manualServer.value.trim().length > 0;
-  if (step.value === 1)
+  if (step.value === 1) {
     return manualEmail.value.trim().length > 0 && manualPassword.value.length > 0;
+  }
   return true;
 });
-const isLast = computed(() => step.value === LAST.value);
+const isLast = computed(() => step.value === LAST);
 
-function chooseQuick(): void {
-  mode.value = "quick";
-  step.value = 0;
-  lastError.value = "";
-}
-
-function switchToManual(): void {
-  mode.value = "manual";
-  step.value = 0;
-  lastError.value = "";
-}
-
-/** 从任一流程回到「选择连接方式」入口层。 */
-function backToMethod(): void {
-  mode.value = null;
-  step.value = 0;
+/** 在第 1 步的「快连链接」与「手动填写」之间切换。 */
+function toggleEntry(): void {
+  manualEntry.value = !manualEntry.value;
   lastError.value = "";
 }
 
@@ -113,8 +90,14 @@ function describeError(e: unknown): string {
 async function next(): Promise<void> {
   if (!canAdvance.value) return;
 
-  // ---- quick-connect step: parse + login before advancing --------------
-  if (mode.value === "quick" && step.value === 0) {
+  // ---- 1) 服务器连接：解析快连链接，或采用手填地址 ----------------------
+  if (step.value === 0) {
+    if (manualEntry.value) {
+      settings.settings.serverUrl = manualServer.value.trim();
+      lastError.value = "";
+      step.value = 1;
+      return;
+    }
     const parsed = parseQuickConnect(quickUrl.value);
     if (!parsed) {
       lastError.value = "快连链接格式不正确，应为 ap://邮箱:密码@地址:端口";
@@ -125,25 +108,17 @@ async function next(): Promise<void> {
     settings.settings.password = parsed.password;
     settings.settings.jwtToken = "";
     settings.settings.currentUser = null;
-    // 解析结果同时同步到手动录入字段，用户切到手动时无需重填。
+    // 解析结果同步到第 2 步字段，用户可直接继续。
     manualServer.value = parsed.serverUrl;
     manualEmail.value = parsed.email;
     manualPassword.value = parsed.password;
-    try {
-      await settings.doLogin(parsed.email, parsed.password);
-      // Success: advance to notify step (index 1 in quick mode).
-      step.value = 1;
-      lastError.value = "";
-    } catch (e) {
-      // 登录失败留在当前步展示原始原因，不再强行跳走，避免用户丢失输入上下文。
-      lastError.value = describeError(e);
-    }
+    lastError.value = "";
+    step.value = 1;
     return;
   }
 
-  // ---- manual credentials step: login before advancing -----------------
-  if (mode.value === "manual" && step.value === 1) {
-    settings.settings.serverUrl = manualServer.value.trim();
+  // ---- 2) 账号登录：换取 JWT 后才允许继续 --------------------------------
+  if (step.value === 1) {
     settings.settings.email = manualEmail.value.trim();
     settings.settings.password = manualPassword.value;
     settings.settings.jwtToken = "";
@@ -153,12 +128,13 @@ async function next(): Promise<void> {
       step.value = 2;
       lastError.value = "";
     } catch (e) {
+      // 登录失败留在当前步展示原始原因，避免用户丢失输入上下文。
       lastError.value = describeError(e);
     }
     return;
   }
 
-  if (step.value < LAST.value) {
+  if (step.value < LAST) {
     step.value += 1;
   } else {
     void finish();
@@ -168,11 +144,6 @@ async function next(): Promise<void> {
 function prev(): void {
   if (step.value > 0) {
     step.value -= 1;
-    return;
-  }
-  // 已在某个流程的第一步：回到「选择连接方式」，而不是直接退出向导。
-  if (mode.value !== null) {
-    backToMethod();
     return;
   }
   if (!canGoBack.value) return;
@@ -193,7 +164,7 @@ async function finish(): Promise<void> {
   const ok = await settings.connect();
   if (!ok) {
     // Send the user back to the credentials step to fix the error.
-    step.value = mode.value === "quick" ? 0 : 1;
+    step.value = 1;
     return;
   }
   await chat.loadContacts();
@@ -231,51 +202,20 @@ async function finish(): Promise<void> {
     <!-- Body -->
     <div class="wizard-body">
       <transition name="step" mode="out-in">
-        <div :key="mode + '-' + step" class="step-pane">
-          <!-- 入口层：先选连接方式，快连与手动录入平级 -->
-          <template v-if="mode === null">
+        <div :key="step" class="step-pane">
+          <!-- 1) 服务器连接 -->
+          <template v-if="step === 0">
             <div class="hero">
-              <v-icon icon="mdi-connection" size="64" color="primary" />
+              <v-icon :icon="manualEntry ? 'mdi-server-network' : 'mdi-link-variant'" size="64" color="primary" />
             </div>
-            <h1 class="title">选择连接方式</h1>
-            <p class="desc">粘贴管理员提供的快连链接一键登录，或手动填写服务器地址与账号。</p>
-
-            <div class="methods">
-              <button type="button" class="method" @click="chooseQuick">
-                <v-icon icon="mdi-link-variant" size="28" color="primary" />
-                <span class="method-text">
-                  <span class="method-title">快连链接</span>
-                  <span class="method-sub">粘贴 ap:// 链接，自动填写并登录</span>
-                </span>
-                <v-icon icon="mdi-chevron-right" size="22" class="method-arrow" />
-              </button>
-              <button type="button" class="method" @click="switchToManual">
-                <v-icon icon="mdi-keyboard-outline" size="28" color="primary" />
-                <span class="method-text">
-                  <span class="method-title">手动录入</span>
-                  <span class="method-sub">自己填写服务器地址、邮箱和密码</span>
-                </span>
-                <v-icon icon="mdi-chevron-right" size="22" class="method-arrow" />
-              </button>
-            </div>
-
-            <v-alert
-              v-if="lastError"
-              type="error"
-              variant="tonal"
-              density="compact"
-              class="alert"
-              :text="lastError"
-            />
-          </template>
-
-          <!-- Quick-connect URL step -->
-          <template v-else-if="mode === 'quick' && step === 0">
-            <div class="hero">
-              <v-icon icon="mdi-link-variant" size="64" color="primary" />
-            </div>
-            <h1 class="title">一键连接</h1>
-            <p class="desc">粘贴快连链接（ap://邮箱:密码@地址:端口），自动完成登录。</p>
+            <h1 class="title">{{ manualEntry ? "服务器地址" : "一键连接" }}</h1>
+            <p class="desc">
+              {{
+                manualEntry
+                  ? "填写 AstrBot+ 后端的服务器地址（含端口）。"
+                  : "粘贴快连链接（ap://邮箱:密码@地址:端口），自动填写地址与账号。"
+              }}
+            </p>
 
             <v-alert
               v-if="lastError"
@@ -287,10 +227,26 @@ async function finish(): Promise<void> {
             />
 
             <v-text-field
+              v-if="!manualEntry"
               v-model="quickUrl"
               label="快连链接"
               placeholder="ap://alice@test.com:secret@192.168.1.10:6199"
               prepend-inner-icon="mdi-link-variant"
+              density="comfortable"
+              variant="solo-filled"
+              rounded="lg"
+              flat
+              hide-details
+              autofocus
+              class="field"
+              @keyup.enter="next"
+            />
+            <v-text-field
+              v-else
+              v-model="manualServer"
+              label="服务器地址"
+              placeholder="例如 192.168.1.10:6199"
+              prepend-inner-icon="mdi-web"
               density="comfortable"
               variant="solo-filled"
               rounded="lg"
@@ -305,47 +261,14 @@ async function finish(): Promise<void> {
               variant="text"
               size="small"
               class="manual-link"
-              @click="switchToManual"
+              @click="toggleEntry"
             >
-              手动录入
+              {{ manualEntry ? "改用快连链接" : "手动填写服务器地址" }}
             </v-btn>
           </template>
 
-          <!-- Manual: server address -->
-          <template v-else-if="mode === 'manual' && step === 0">
-            <div class="hero">
-              <v-icon icon="mdi-server-network" size="64" color="primary" />
-            </div>
-            <h1 class="title">服务器地址</h1>
-            <p class="desc">填写 AstrBot+ 后端的服务器地址（含端口）。</p>
-
-            <v-alert
-              v-if="lastError"
-              type="error"
-              variant="tonal"
-              density="compact"
-              class="alert"
-              :text="lastError"
-            />
-
-            <v-text-field
-              v-model="manualServer"
-              label="服务器地址"
-              placeholder="例如 192.168.1.10:6199"
-              prepend-inner-icon="mdi-web"
-              density="comfortable"
-              variant="solo-filled"
-              rounded="lg"
-              flat
-              hide-details
-              autofocus
-              class="field"
-              @keyup.enter="next"
-            />
-          </template>
-
-          <!-- Manual: email + password -->
-          <template v-else-if="mode === 'manual' && step === 1">
+          <!-- 2) 账号登录 -->
+          <template v-else-if="step === 1">
             <div class="hero">
               <v-icon icon="mdi-account-key-outline" size="64" color="primary" />
             </div>
@@ -392,8 +315,8 @@ async function finish(): Promise<void> {
             />
           </template>
 
-          <!-- Notify step (shared between both modes) -->
-          <template v-else-if="step === steps.length - 2">
+          <!-- 3) 通知与提醒 -->
+          <template v-else-if="step === 2">
             <div class="hero">
               <v-icon icon="mdi-bell-ring-outline" size="64" color="primary" />
             </div>
@@ -434,7 +357,7 @@ async function finish(): Promise<void> {
             </v-list>
           </template>
 
-          <!-- Background step (shared) -->
+          <!-- 4) 后台运行 -->
           <template v-else>
             <div class="hero">
               <v-icon icon="mdi-power-sleep" size="64" color="primary" />
@@ -464,8 +387,7 @@ async function finish(): Promise<void> {
     </div>
 
     <!-- Bottom action -->
-    <!-- 入口层由卡片自身完成选择，不显示底部主按钮 -->
-    <div v-if="mode !== null" class="wizard-foot">
+    <div class="wizard-foot">
       <v-btn
         color="primary"
         size="large"
@@ -590,63 +512,6 @@ async function finish(): Promise<void> {
 .manual-link {
   margin-top: 12px;
   opacity: 0.75;
-}
-/* 入口层：两种连接方式的并列卡片 */
-.methods {
-  width: 100%;
-  max-width: 420px;
-  margin-top: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.method {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  padding: 16px 14px;
-  border: 1px solid rgba(var(--v-theme-on-surface), 0.12);
-  border-radius: 16px;
-  background: rgba(var(--v-theme-on-surface), 0.04);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease,
-    transform 0.15s ease;
-}
-.method:hover,
-.method:focus-visible {
-  border-color: rgba(var(--v-theme-primary), 0.6);
-  background: rgba(var(--v-theme-primary), 0.08);
-  outline: none;
-}
-.method:active {
-  transform: scale(0.985);
-}
-.method-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.method-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: rgb(var(--v-theme-on-surface));
-}
-.method-sub {
-  font-size: 13px;
-  line-height: 1.4;
-  color: rgba(var(--v-theme-on-surface), 0.6);
-}
-.method-arrow {
-  flex: 0 0 auto;
-  opacity: 0.45;
 }
 .rows {
   width: 100%;

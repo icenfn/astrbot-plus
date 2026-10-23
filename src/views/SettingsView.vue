@@ -84,12 +84,6 @@ const modeLabel = computed(() =>
 const serverAddress = computed(
   () => settings.settings.serverUrl.trim() || "未配置",
 );
-const accountLabel = computed(() => {
-  const u = settings.settings.currentUser;
-  if (u?.username) return u.username;
-  return settings.settings.email || "未登录";
-});
-
 function openWizard(): void {
   void router.push("/wizard");
 }
@@ -123,7 +117,6 @@ async function onAutoStart(value: boolean): Promise<void> {
               </v-btn>
             </template>
           </v-list-item>
-          <v-list-item title="当前账号" :subtitle="accountLabel" />
           <v-list-item title="连接状态" subtitle="与服务器的连接状态">
             <template #append>
               <v-chip :color="statusColor" size="small" variant="tonal">

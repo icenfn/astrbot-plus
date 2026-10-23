@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { storeToRefs } from "pinia";
 import { useRouter } from "vue-router";
-import { useChatStore, userPeerKey } from "@/stores/chat";
+import { useChatStore } from "@/stores/chat";
 import { useSettingsStore } from "@/stores/settings";
 import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
 
@@ -11,8 +11,8 @@ import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
  *
  * Two groups, both populated from the HTTP API once connected:
  *
- *   • 智能体 — `GET /api/agents`. Tap → `/chat/<agentId>` (streaming chat).
- *   • 好友   — `GET /api/users`. Tap → `/chat/user_<userId>` (private chat).
+ *   • 智能体 — `GET /api/agents`. Tap → `/agent/<agentId>`（信息页，再点「发消息」进会话）。
+ *   • 好友   — `GET /api/users`. Tap → `/user/<userId>`（信息页，再点「发消息」进会话）。
  */
 const router = useRouter();
 const chat = useChatStore();
@@ -23,12 +23,14 @@ const { connected } = storeToRefs(settings);
 const agentsEmpty = computed(() => !agents.value.length);
 const friendsEmpty = computed(() => !friends.value.length);
 
+/** 点击智能体 → 先看 Agent 信息页（发消息按钮才进会话）。 */
 function openAgent(id: string) {
-  void router.push(`/chat/${encodeURIComponent(id)}`);
+  void router.push(`/agent/${encodeURIComponent(id)}`);
 }
 
+/** 点击好友 → 先看好友信息页（发消息按钮才进会话）。 */
 function openFriend(userId: string) {
-  void router.push(`/chat/${encodeURIComponent(userPeerKey(userId))}`);
+  void router.push(`/user/${encodeURIComponent(userId)}`);
 }
 </script>
 
@@ -58,7 +60,8 @@ function openFriend(userId: string) {
           <template #prepend>
             <AstrbotAvatar
               :name="agent.name"
-              :seed="agent.botdf ?? agent.name"
+              :src="agent.avatar"
+              type="agent"
               :size="42"
             />
           </template>
@@ -95,7 +98,8 @@ function openFriend(userId: string) {
           <template #prepend>
             <AstrbotAvatar
               :name="person.username"
-              :seed="person.df ?? person.username"
+              :src="person.avatar"
+              type="user"
               :size="42"
             />
           </template>

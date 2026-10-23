@@ -55,6 +55,12 @@ function jumpToEnd() {
 
 const showJumpButton = computed(() => !pinned.value);
 
+/** 我方头像 / 名称：来自当前登录用户（服务端下发，登录后已缓存）。 */
+const meAvatar = computed(() => settings.settings.currentUser?.avatar || "");
+const meName = computed(
+  () => settings.settings.currentUser?.username || settings.settings.email || "我",
+);
+
 function jumpToBottom() {
   pinned.value = true;
   void scrollToBottom(true);
@@ -126,7 +132,8 @@ useEventListener(window, "astrbot:viewport", onViewportResize);
         />
         <AstrbotAvatar
           :name="activePeer.name"
-          :seed="activePeer.avatarSeed"
+          :src="activePeer.avatar"
+          :type="activePeer.peerType === 'agent' ? 'agent' : 'user'"
           :size="42"
         />
         <div class="head-meta">
@@ -161,6 +168,9 @@ useEventListener(window, "astrbot:viewport", onViewportResize);
             :key="m.serverId ?? i"
             :message="m"
             :self="m.role === 'user'"
+            :avatar="m.role === 'user' ? meAvatar : activePeer.avatar"
+            :name="m.role === 'user' ? meName : activePeer.name"
+            :peer-type="activePeer.peerType"
           />
         </div>
 

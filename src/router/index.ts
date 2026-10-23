@@ -94,6 +94,19 @@ const router = createRouter({
         },
       ],
     },
+    {
+      // 好友信息 — 从联系人页点击好友进入；「发消息」才进入会话。
+      path: "/user/:id",
+      component: () => import("@/layouts/BackLayout.vue"),
+      children: [
+        {
+          path: "",
+          name: "user-info",
+          component: () => import("@/views/UserInfoView.vue"),
+          meta: { title: "好友信息" },
+        },
+      ],
+    },
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });

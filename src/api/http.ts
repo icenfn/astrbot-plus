@@ -28,6 +28,10 @@ export interface LoginUser {
   email: string;
   username: string;
   df?: string;
+  /** 头像（data-URI 或 URL）；空串表示使用内置默认头像。 */
+  avatar?: string;
+  /** 用户对外 ID（ap_ 前缀，唯一）。 */
+  ap_id?: string;
 }
 
 export interface LoginResponse {

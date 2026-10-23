@@ -1,16 +1,32 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { storeToRefs } from "pinia";
+import { useSettingsStore } from "@/stores/settings";
 import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
 
-// UI-only page. The 设置 entry lives here; the other rows are placeholders and
-// intentionally have no behaviour yet. The「外观」and「消息通知」rows were removed
-// (appearance + notification settings live in 设置), and「关于 AstrBot+」now
-// opens the dedicated about page.
-
+/**
+ * MineView — 「我的」页。
+ *
+ * 用户基础信息（头像 / 用户名 / ap_id）来自服务端登录响应，登录后缓存在
+ * settings 里，这里只做展示。ap_id 是用户的对外唯一标识（类似 wxid），
+ * 未下发时显示占位符。
+ */
 interface MenuItem {
   title: string;
   icon: string;
   to?: string;
 }
+
+const settings = useSettingsStore();
+const { connected } = storeToRefs(settings);
+
+const user = computed(() => settings.settings.currentUser);
+const displayName = computed(
+  () => user.value?.username || settings.settings.email || "AstrBot 用户",
+);
+const avatar = computed(() => user.value?.avatar || "");
+const apId = computed(() => user.value?.ap_id || "—");
+const email = computed(() => user.value?.email || settings.settings.email || "");
 
 const menu: MenuItem[] = [
   { title: "设置", icon: "mdi-cog-outline", to: "/settings" },
@@ -24,12 +40,24 @@ const menu: MenuItem[] = [
     <div class="mine-scroll chat-scroll">
       <v-card class="profile" variant="flat" rounded="lg">
         <div class="profile-row">
-          <AstrbotAvatar name="AstrBot 用户" seed="astrbot-plus-me" :size="64" />
+          <AstrbotAvatar :name="displayName" :src="avatar" type="user" :size="64" />
           <div class="profile-meta">
-            <div class="profile-name">AstrBot 用户</div>
-            <div class="profile-id">ID: astrbot_plus</div>
+            <div class="profile-name">{{ displayName }}</div>
+            <div v-if="email" class="profile-email">{{ email }}</div>
+            <div class="profile-id">
+              <span class="label">ap_id</span>
+              <span class="mono">{{ apId }}</span>
+            </div>
           </div>
-          <v-icon icon="mdi-qrcode" class="profile-qr" />
+          <v-chip
+            v-if="connected"
+            color="success"
+            size="x-small"
+            variant="tonal"
+            class="profile-state"
+          >
+            在线
+          </v-chip>
         </div>
       </v-card>
 
@@ -88,14 +116,39 @@ const menu: MenuItem[] = [
   font-size: 18px;
   font-weight: 600;
   color: rgb(var(--v-theme-on-surface));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.profile-id {
+.profile-email {
   margin-top: 2px;
   font-size: 13px;
   color: rgba(var(--v-theme-on-surface), 0.6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.profile-qr {
-  color: rgba(var(--v-theme-on-surface), 0.55);
+.profile-id {
+  margin-top: 4px;
+  font-size: 13px;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.profile-id .label {
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+.profile-id .mono {
+  font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-state {
+  flex: 0 0 auto;
 }
 .menu {
   background: rgb(var(--v-theme-surface));

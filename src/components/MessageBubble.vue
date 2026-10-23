@@ -1,12 +1,33 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import type { ChatMessage } from "@/api/types";
+import type { ChatMessage, PeerType } from "@/api/types";
 import { renderMarkdown } from "@/utils/markdown";
+import AstrbotAvatar from "./AstrbotAvatar.vue";
 
-const props = defineProps<{ message: ChatMessage; self?: boolean }>();
+/**
+ * MessageBubble — 一条聊天消息。
+ *
+ * 气泡两侧显示头像（Telegram 式）：对方消息头像在左，我方消息头像在右。
+ * 头像地址由会话元数据 / 当前登录用户提供，组件本身不生成头像。
+ */
+const props = defineProps<{
+  message: ChatMessage;
+  self?: boolean;
+  /** 该消息所属一方的头像（我方 = 当前登录用户，对方 = 会话对端）。 */
+  avatar?: string;
+  /** 该消息所属一方的显示名（用作 alt / title）。 */
+  name?: string;
+  /** 对方若是智能体，默认头像用 agent 版。 */
+  peerType?: PeerType;
+}>();
 
 const isUser = computed(() => props.self ?? props.message.role === "user");
 const isError = computed(() => !!props.message.error);
+
+/** 我方默认头像固定为用户版；对方按 peerType 区分。 */
+const avatarType = computed<"user" | "agent">(() =>
+  isUser.value ? "user" : props.peerType === "agent" ? "agent" : "user",
+);
 
 /**
  * Render the reply body as markdown. The reply text is shown as-is: the client no
@@ -27,6 +48,14 @@ const time = computed(() => {
 
 <template>
   <div class="bubble-row" :class="isUser ? 'right' : 'left'">
+    <AstrbotAvatar
+      v-if="!isUser"
+      class="row-avatar"
+      :src="avatar"
+      :name="name"
+      :type="avatarType"
+      :size="30"
+    />
     <div class="bubble" :class="{ user: isUser, error: isError }">
       <div v-if="html" class="md" v-html="html" />
       <span class="meta">
@@ -34,12 +63,22 @@ const time = computed(() => {
         <v-icon v-if="isUser && !isError" class="tick" icon="mdi-check-all" size="14" />
       </span>
     </div>
+    <AstrbotAvatar
+      v-if="isUser"
+      class="row-avatar"
+      :src="avatar"
+      :name="name"
+      type="user"
+      :size="30"
+    />
   </div>
 </template>
 
 <style scoped>
 .bubble-row {
   display: flex;
+  align-items: flex-end;
+  gap: 8px;
   margin: 2.5px 0;
 }
 .bubble-row.left {
@@ -47,6 +86,9 @@ const time = computed(() => {
 }
 .bubble-row.right {
   justify-content: flex-end;
+}
+.row-avatar {
+  margin-bottom: 2px;
 }
 .bubble {
   position: relative;

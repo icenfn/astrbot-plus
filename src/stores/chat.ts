@@ -67,7 +67,8 @@ interface PeerMeta {
   peerType: PeerType;
   peerId: string;
   name: string;
-  avatarSeed: string;
+  /** 头像（data-URI / URL）；空串表示使用内置默认头像。 */
+  avatar: string;
   updatedAt: number;
   lastMessage?: string;
   messageCount: number;
@@ -173,7 +174,7 @@ export const useChatStore = defineStore("chat", () => {
       peerType: meta.peerType,
       peerId: meta.peerId,
       name: meta.name,
-      avatarSeed: meta.avatarSeed,
+      avatar: meta.avatar,
       lastMessage: meta.lastMessage ?? existing?.lastMessage,
       updatedAt: meta.updatedAt ?? existing?.updatedAt ?? Date.now(),
       messageCount: meta.messageCount ?? existing?.messageCount ?? 0,
@@ -203,7 +204,7 @@ export const useChatStore = defineStore("chat", () => {
     key: string,
     text: string,
     ts?: number,
-    extra?: Partial<Pick<PeerMeta, "name" | "avatarSeed" | "peerType" | "peerId">>,
+    extra?: Partial<Pick<PeerMeta, "name" | "avatar" | "peerType" | "peerId">>,
   ): PeerMeta {
     const existing = peers.value[key];
     const base: PeerMeta = existing ?? {
@@ -211,7 +212,7 @@ export const useChatStore = defineStore("chat", () => {
       peerType: parsePeerKey(key).peerType,
       peerId: parsePeerKey(key).peerId,
       name: extra?.name ?? key,
-      avatarSeed: extra?.avatarSeed ?? key,
+      avatar: extra?.avatar ?? "",
       updatedAt: Date.now(),
       messageCount: 0,
     };
@@ -310,7 +311,7 @@ export const useChatStore = defineStore("chat", () => {
         peerType: "user",
         peerId: parsePeerKey(key).peerId,
         name: msg.fromUsername ?? friend?.username ?? parsePeerKey(key).peerId,
-        avatarSeed: friend?.df ?? msg.fromUsername ?? parsePeerKey(key).peerId,
+        avatar: friend?.avatar ?? "",
       });
     }
 
@@ -432,7 +433,7 @@ export const useChatStore = defineStore("chat", () => {
           peerType: "agent",
           peerId: a.id,
           name: a.name,
-          avatarSeed: a.botdf ?? a.name,
+          avatar: a.avatar ?? "",
         });
       }
       // Seed peer metadata for friends too (so opening a friend chat works
@@ -444,7 +445,7 @@ export const useChatStore = defineStore("chat", () => {
           peerType: "user",
           peerId: u.id,
           name: u.username,
-          avatarSeed: u.df ?? u.username,
+          avatar: u.avatar ?? "",
         });
       }
       bindFeed();

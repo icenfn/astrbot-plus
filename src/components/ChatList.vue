@@ -155,7 +155,12 @@ async function doDelete() {
         >
           <template #prepend>
             <div class="avatar-wrap">
-              <AstrbotAvatar :name="row.name" :seed="row.avatarSeed" :size="48" />
+              <AstrbotAvatar
+                :name="row.name"
+                :src="row.avatar"
+                :type="row.peerType === 'agent' ? 'agent' : 'user'"
+                :size="48"
+              />
               <span v-if="chat.unreadOf(row.key) > 0" class="badge">
                 {{ badge(chat.unreadOf(row.key)) }}
               </span>
