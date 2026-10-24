@@ -1,49 +1,56 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import { useSettingsStore } from "@/stores/settings";
 
-/**
- * AstrbotAvatar — 统一头像组件（图片版）。
- *
- * 不再使用「字符 + 随机底色」的本地生成方案：头像由服务端下发（`avatar`
- * 字段，data-URI 或 http(s) URL），客户端只负责渲染与本地缓存。字段为空时
- * 回落到随包发布的默认头像（用户 / 智能体各一张）。
- */
+/** 统一头像组件：服务端图片优先，全部取不到才用本地占位图。 */
 const props = withDefaults(
   defineProps<{
     name?: string;
-    /** 服务端下发的 avatar（data-URI / URL）。空串表示使用默认头像。 */
     src?: string;
-    /** 默认头像种类：user = 用户，agent = 智能体。 */
     type?: "user" | "agent";
     size?: number;
   }>(),
   { name: "", src: "", type: "user", size: 46 },
 );
 
-const DEFAULT_AVATAR: Record<"user" | "agent", string> = {
+const settings = useSettingsStore();
+
+const LOCAL_PLACEHOLDER: Record<"user" | "agent", string> = {
   user: "/default_user_avatar.png",
   agent: "/default_agent_avatar.png",
 };
 
-/** 图片加载失败（坏链接 / 离线）时回落到默认头像，避免出现破图。 */
-const broken = ref(false);
-watch(
-  () => [props.src, props.type],
-  () => {
-    broken.value = false;
-  },
-);
-
-const url = computed(() => {
-  const raw = (props.src || "").trim();
-  if (raw && !broken.value) return raw;
-  return DEFAULT_AVATAR[props.type] ?? DEFAULT_AVATAR.user;
+/** 服务端默认头像地址（由插件 /api/avatar/default 提供）。 */
+const serverDefault = computed(() => {
+  const raw = (settings.settings.serverUrl || "").trim();
+  if (!raw) return "";
+  const base = /^https?:\/\//i.test(raw)
+    ? raw.replace(/\/+$/, "")
+    : `http://${raw.replace(/\/+$/, "")}`;
+  return `${base}/api/avatar/default?type=${props.type}`;
 });
+
+/** 候选地址按优先级排列：服务端下发 → 服务端默认 → 本地占位。 */
+const candidates = computed(() => {
+  const list = [props.src || "", serverDefault.value, LOCAL_PLACEHOLDER[props.type]];
+  return list.filter((u, i) => !!u && list.indexOf(u) === i);
+});
+
+const idx = ref(0);
+watch(candidates, () => {
+  idx.value = 0;
+});
+
+const url = computed(() => candidates.value[idx.value] || LOCAL_PLACEHOLDER[props.type]);
 
 const style = computed(() => ({
   width: `${props.size}px`,
   height: `${props.size}px`,
 }));
+
+function onError(): void {
+  if (idx.value < candidates.value.length - 1) idx.value += 1;
+}
 </script>
 
 <template>
@@ -54,7 +61,7 @@ const style = computed(() => ({
       :title="name || ''"
       loading="lazy"
       decoding="async"
-      @error="broken = true"
+      @error="onError"
     />
   </div>
 </template>

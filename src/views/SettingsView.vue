@@ -119,7 +119,7 @@ async function onAutoStart(value: boolean): Promise<void> {
           </v-list-item>
           <v-list-item title="连接状态" subtitle="与服务器的连接状态">
             <template #append>
-              <v-chip :color="statusColor" size="small" variant="tonal">
+              <v-chip :color="statusColor" size="small" variant="tonal" rounded="lg">
                 {{ statusText }} · {{ modeLabel }}
               </v-chip>
             </template>
@@ -138,6 +138,9 @@ async function onAutoStart(value: boolean): Promise<void> {
                 :items="themes"
                 item-title="title"
                 item-value="value"
+                variant="solo-filled"
+                density="comfortable"
+                hide-details
                 class="row-select"
               />
             </template>
@@ -159,6 +162,7 @@ async function onAutoStart(value: boolean): Promise<void> {
                 color="primary"
                 density="compact"
                 hide-details
+                inset
                 class="row-switch"
               />
             </template>
@@ -174,6 +178,9 @@ async function onAutoStart(value: boolean): Promise<void> {
                 :items="notifyModes"
                 item-title="title"
                 item-value="value"
+                variant="solo-filled"
+                density="comfortable"
+                hide-details
                 class="row-select"
                 :disabled="!settings.settings.notifyEnabled"
               />
@@ -196,6 +203,7 @@ async function onAutoStart(value: boolean): Promise<void> {
                 color="primary"
                 density="compact"
                 hide-details
+                inset
                 class="row-switch"
               />
             </template>
@@ -214,6 +222,7 @@ async function onAutoStart(value: boolean): Promise<void> {
                 color="primary"
                 density="compact"
                 hide-details
+                inset
                 class="row-switch"
                 @update:model-value="onAutoStart($event as boolean)"
               />
@@ -226,6 +235,7 @@ async function onAutoStart(value: boolean): Promise<void> {
                 color="primary"
                 density="compact"
                 hide-details
+                inset
                 class="row-switch"
               />
             </template>
@@ -237,6 +247,7 @@ async function onAutoStart(value: boolean): Promise<void> {
                 color="primary"
                 density="compact"
                 hide-details
+                inset
                 class="row-switch"
               />
             </template>

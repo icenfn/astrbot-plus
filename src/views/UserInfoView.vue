@@ -21,7 +21,9 @@ const userId = computed(() =>
   typeof route.params.id === "string" ? route.params.id : "",
 );
 
-const friend = computed(() => friends.value.find((f) => f.id === userId.value) ?? null);
+const friend = computed(
+  () => friends.value.find((f) => String(f.id) === userId.value) ?? null,
+);
 const displayName = computed(() => friend.value?.username || userId.value);
 const avatar = computed(() => friend.value?.avatar || "");
 const apId = computed(() => friend.value?.ap_id || "");

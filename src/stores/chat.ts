@@ -110,7 +110,8 @@ export const useChatStore = defineStore("chat", () => {
 
   const conversationRows = computed<PeerMeta[]>(() => {
     const rows = Object.values(peers.value)
-      .filter((p) => started.value[p.key])
+      // 已开始的会话，或本地/服务端已有历史消息的会话，都应出现在列表里
+      .filter((p) => started.value[p.key] || (threads.value[p.key]?.length ?? 0) > 0)
       .slice();
     rows.sort((a, b) => {
       const pa = pinned.value[a.key] ? 1 : 0;

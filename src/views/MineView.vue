@@ -1,16 +1,9 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { storeToRefs } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
 import AstrbotAvatar from "@/components/AstrbotAvatar.vue";
 
-/**
- * MineView — 「我的」页。
- *
- * 用户基础信息（头像 / 用户名 / ap_id）来自服务端登录响应，登录后缓存在
- * settings 里，这里只做展示。ap_id 是用户的对外唯一标识（类似 wxid），
- * 未下发时显示占位符。
- */
+/** 「我的」页：展示服务端下发的用户基础信息。 */
 interface MenuItem {
   title: string;
   icon: string;
@@ -18,7 +11,6 @@ interface MenuItem {
 }
 
 const settings = useSettingsStore();
-const { connected } = storeToRefs(settings);
 
 const user = computed(() => settings.settings.currentUser);
 const displayName = computed(
@@ -49,15 +41,6 @@ const menu: MenuItem[] = [
               <span class="mono">{{ apId }}</span>
             </div>
           </div>
-          <v-chip
-            v-if="connected"
-            color="success"
-            size="x-small"
-            variant="tonal"
-            class="profile-state"
-          >
-            在线
-          </v-chip>
         </div>
       </v-card>
 
@@ -146,9 +129,6 @@ const menu: MenuItem[] = [
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.profile-state {
-  flex: 0 0 auto;
 }
 .menu {
   background: rgb(var(--v-theme-surface));

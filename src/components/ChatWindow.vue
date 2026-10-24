@@ -7,7 +7,6 @@ import { useChatStore } from "@/stores/chat";
 import { useSettingsStore } from "@/stores/settings";
 import { usePlatform } from "@/composables/usePlatform";
 import { notify } from "@/composables/useNotify";
-import AstrbotAvatar from "./AstrbotAvatar.vue";
 import MessageBubble from "./MessageBubble.vue";
 import MessageComposer from "./MessageComposer.vue";
 
@@ -130,12 +129,6 @@ useEventListener(window, "astrbot:viewport", onViewportResize);
           class="back-btn"
           @click="closeChat"
         />
-        <AstrbotAvatar
-          :name="activePeer.name"
-          :src="activePeer.avatar"
-          :type="activePeer.peerType === 'agent' ? 'agent' : 'user'"
-          :size="42"
-        />
         <div class="head-meta">
           <div class="head-name">{{ activePeer.name }}</div>
           <div class="head-sub">
@@ -211,24 +204,30 @@ useEventListener(window, "astrbot:viewport", onViewportResize);
   background: rgb(var(--v-theme-surface));
 }
 .head {
+  position: relative;
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 12px;
   padding: calc(12px + var(--safe-area-inset-top, env(safe-area-inset-top, 0px))) 16px 12px;
   background: rgb(var(--v-theme-surface));
   border-bottom: 1px solid rgba(var(--v-theme-on-surface), 0.12);
 }
 .back-btn {
-  margin-left: -8px;
+  position: absolute;
+  left: 16px;
+  margin-left: 0;
 }
 .head-meta {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
+  text-align: center;
 }
 .info-btn {
-  flex: 0 0 auto;
-  margin-right: -6px;
+  position: absolute;
+  right: 16px;
+  margin-right: 0;
 }
 .head-name {
   font-weight: 600;

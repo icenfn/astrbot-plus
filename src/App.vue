@@ -2,6 +2,7 @@
 import { onMounted, watch } from "vue";
 import { useEventListener } from "@vueuse/core";
 import { useTheme } from "vuetify";
+import { THEME_NAMES } from "@/plugins/theme";
 import { storeToRefs } from "pinia";
 import { useRoute, useRouter } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
@@ -41,7 +42,7 @@ useVisualViewport();
 watch(
   isDark,
   (dark) => {
-    theme.change(dark ? "telegramDark" : "telegramLight");
+    theme.change(dark ? THEME_NAMES.dark : THEME_NAMES.light);
     // Keep the Android status / navigation bar icons legible against the app
     // surface (light surface ⇒ dark icons). No-op on desktop/web where the
     // bridge is absent.

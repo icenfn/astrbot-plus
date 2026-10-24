@@ -334,6 +334,7 @@ async function finish(): Promise<void> {
                     color="primary"
                     density="compact"
                     hide-details
+                    inset
                     class="row-switch"
                   />
                 </template>
@@ -349,6 +350,9 @@ async function finish(): Promise<void> {
                     :items="notifyModes"
                     item-title="title"
                     item-value="value"
+                    variant="solo-filled"
+                    density="comfortable"
+                    hide-details
                     class="row-select"
                     :disabled="!notifyEnabled"
                   />
@@ -376,6 +380,7 @@ async function finish(): Promise<void> {
                     color="primary"
                     density="compact"
                     hide-details
+                    inset
                     class="row-switch"
                   />
                 </template>
@@ -496,7 +501,11 @@ async function finish(): Promise<void> {
 .field {
   width: 100%;
   max-width: 420px;
-  margin-top: 22px;
+  margin-top: 12px;
+}
+/* 同一屏内连续的表单控件不再叠加 22px 间距 */
+.field + .field {
+  margin-top: 10px;
 }
 .field :deep(.v-field) {
   height: 56px;
